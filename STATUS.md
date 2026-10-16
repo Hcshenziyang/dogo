@@ -15,7 +15,7 @@
 
 - 工程骨架检查：本机 macOS / Node.js 26.7.0 / pnpm 11.22.0 通过；验证 5 个包声明、12 份 Markdown 及本地链接。
 - GitHub 公开仓库已创建：[Hcshenziyang/dogo](https://github.com/Hcshenziyang/dogo)。
-- 已配置 Node.js 24 的 Linux/macOS/Windows 骨架检查工作流；远端结果以 Actions 为准，当前不宣称已通过。
+- 初始提交 `458f959` 已推送；Node.js 24 的 Linux/macOS/Windows 骨架检查均通过，见 [CI 记录](https://github.com/Hcshenziyang/dogo/actions/runs/38857376347)。这不是应用构建或产品功能验证。
 - 产品功能、Pi 集成、模型调用、Mac/Windows 打包：未实现，未测试。
 
 ## 待决策
