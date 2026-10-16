@@ -1,0 +1,10 @@
+{
+  "name": "dogo",
+  "version": "0.0.0",
+  "private": true,
+  "description": "DogO local-first personal assistant — planning workspace",
+  "type": "module",
+  "packageManager": "pnpm@11.22.0",
+  "engines": { "node": ">=24" },
+  "scripts": { "check": "node scripts/check-layout.mjs" }
+}
