@@ -3,7 +3,7 @@ import { mkdtemp, mkdir, writeFile, rm, realpath } from 'node:fs/promises';
 import path from 'node:path';
 import { tmpdir } from 'node:os';
 import assert from 'node:assert/strict';
-import { Engine } from '../apps/runtime/src/engine.mjs';
+import { Engine } from '../packages/dsh-plugin/test/harness.mjs';
 
 const folder = await realpath(await mkdtemp(path.join(tmpdir(), 'dogo-dsh-smoke-')));
 const workspace = path.join(folder, 'fixture');

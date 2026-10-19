@@ -1,5 +1,16 @@
 # 当前状态
 
+## DSH 插件化改版源码交付（2026-10-19）
+
+- 用户在确认[改版方案](docs/dsh-plugin-architecture-plan.md)后要求完整实施。本轮已修改运行代码：移除 `apps/runtime` 及 stdio RPC，Electron 直接管理唯一 DSH 后端；DogO 中转、资料、项目、个人记忆和业务数据在 Host 插件内运行，通过进程内接口调用上游会话。
+- React 业务页面通过 DSH sidebar/main 插件槽位加载，复用 hub-ui；桌面外壳只留标题栏、连接状态和恢复。删除重复 LegacyApp/HubPanel；旧任务在插件设置只读查看，模型与 DSH 插件配置由原生设置管理。
+- 原生能力、系统凭据和授权留在 Electron；新增有限 preload 与主进程 sender/frame/origin 校验，权限更改原生确认。浏览器业务 API 使用 DSH 会话认证，拒绝本机授权/连接管理操作；缓存和业务请求核对连接身份。修正原生 helper、CLI PATH 与 SSH agent 环境传递。
+- 保留现有设备标识、SQLite 格式、记忆目录和 DSH 会话。首次接管前一致性备份、独占锁与版本检查；旧模型首次导入并备份 profile，之后不反复覆盖用户设置。`ctx.effect()` disposer 已替代未触发清理的 dispose 事件写法。新建 profile 默认工作区使用应用数据目录，已有配置保留。
+- 抽出 `packages/sync-client`，插件不再依赖服务器应用。Mac 打包部署 desktop 依赖及预构建 Client；服务端更新包同时包含共享同步 JS，防止源码更新遗漏依赖。`test:runtime` 暂保留为 `test:plugin` 命令别名，不再对应运行进程。
+- Linux 自动测试 **125/125** 通过：插件 34、桌面 14、服务 43、手机逻辑 31、共享 Hub 3。包括真实 DSH + 合成模型的重启去重/原会话续聊、Host 插件中转任务与资料、记忆同步、退出隔离、鉴权与原生桥边界。中转测试将合成 HTTPS origin 映射到隔离本机服务，不声称真实公网 TLS 验收。
+- 类型检查、桌面/插件/手机 Web 构建、工程布局与 diff 检查通过。真实 Chromium 加载 DSH Client 插件，打开设置并实际保存/读回记忆文件，无 pageerror。独立生产依赖副本的真实 DSH 启动成功；服务更新包解包后 43/43 测试通过。构建存在上游/既有 peer 和手机大 chunk 提示，没有测试跳过计为通过。
+- 本轮交付改版源码；用户已要求提交到 GitHub，由本机自行拉取更新。未替换安装版、部署服务或修改用户已有数据。当前为 Linux 云环境，未验收新版 Mac Electron 原生窗口、钥匙串/TCC/登录项、真实 Codex/SSH、Windows 打包或实机；Windows 的系统能力仍不是已交付功能。下方 0.4.0 生产记录为历史证据，不能代替本次改版的实机验收。
+
 更新时间：2026-10-19
 当前阶段：0.4.0 服务已部署、Mac 已恢复在线、APK 已交付；专用 Android 模拟器经生产服务与 Mac/实际模型的四项跨端复验通过，用户账号初始化与真机验收待完成。
 当前产品需求基线为 [产品文档 v0.1.0](docs/product-v0.1.0.md)；文档版本不等于 Android 或桌面发行版本。

@@ -1,4 +1,4 @@
-import { pairingSchema, serviceOrigin } from '../../runtime/src/relay.mjs';
+import { pairingSchema, serviceOrigin } from '@dogo/contracts/pairing';
 
 const operations = new Set(['status', 'login', 'setup', 'recover', 'devices', 'device', 'revoke', 'password', 'logout', 'disable-legacy']);
 const safe = value => Object.fromEntries(['initialized', 'authenticated', 'legacy', 'username', 'device', 'expiresAt', 'recoveryCode', 'signInRequired', 'devices', 'revoked', 'ok'].filter(k => value[k] !== undefined).map(k => [k, value[k]]));

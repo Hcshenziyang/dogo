@@ -4,7 +4,9 @@
 
 产品需求以 [产品文档 v0.1.0](docs/product-v0.1.0.md) 为准：无人值守执行、原生会话续聊、资料箱和个人记忆文件夹同步。实现与实机验证分开记录。
 
-> **状态：0.4.0 服务已部署、Mac 已安装、APK 已生成，产品基线 v0.1.0。** 新增个人账号/设备管理、网页入口、附件与记忆管理、手机独立 Agent、Mac 电脑操作/Codex/SSH 工具。
+> **源码已完成 DSH 插件化改版，尚未替换安装版。** 目录和边界见 [架构](ARCHITECTURE.md)，方案见 [改版说明](docs/dsh-plugin-architecture-plan.md)。
+
+> **此前发布状态：0.4.0 服务已部署、Mac 已安装、APK 已生成，产品基线 v0.1.0。** 新增个人账号/设备管理、网页入口、附件与记忆管理、手机独立 Agent、Mac 电脑操作/Codex/SSH 工具。
 > Mac 已在线，Android 专用模拟器经生产服务、Mac 与实际模型的四项跨端复验通过；账号初始化、手机模型 API 配置和真机验收需用户完成。详见 [当前状态](STATUS.md)，不把模拟器通过当真机验收。Windows 当前暂缓。
 
 ## 已确认方向
@@ -23,18 +25,18 @@
 
 | 目录 | 计划职责 |
 | --- | --- |
-| `apps/web/` | 浏览器与桌面共享界面 |
+| `apps/web/` | Electron 标题栏、连接状态与失败恢复 |
 | `apps/desktop/` | Electron 外壳和系统集成 |
-| `apps/runtime/` | DSH 生命周期、任务/设备中转适配与本地业务数据 |
 | `apps/mobile/` | React + Capacitor Android：发任务、前台刷新结果、原生安全凭据桥接 |
 | `apps/others/` | 服务器工具及可独立部署的消息中转、同步配套服务 |
 | `apps/others/services/` | 已实现的任务信箱/MCP/事件流和共享文件夹同步原型 |
 | `packages/contracts/` | 通信协议、事件与运行时校验 |
-| `packages/dsh-plugin/` | 薄桥接插件：DSH 任务、流式结果、只读授权；不包含 Agent 循环 |
+| `packages/dsh-plugin/` | DSH Host 业务服务 + React Client 页面；不包含第二套 Agent 循环 |
+| `packages/sync-client/` | 独立的文件同步与 HTTP 客户端 |
 | `packages/hub-ui/` | Mac/Android 共用跨端会话、资料、缓存和待发队列 |
 | `docs/decisions/` | 重要技术决策及原因 |
 
-暂不创建通用多引擎框架或动态 UI 插件平台。Mac 开发版运行 `pnpm dev:desktop`，见 [桌面说明](apps/desktop/README.md)。
+DogO 页面使用上游 DSH 插件槽位，不自建插件平台。Mac 开发版运行 `pnpm dev:desktop`，见 [桌面说明](apps/desktop/README.md)。
 `pnpm dev:web` 为明确标记的浏览器交互演示，不执行本机任务。
 手机页面运行 `pnpm dev:mobile`，安装包运行 `pnpm build:apk`，见 [手机说明](apps/mobile/README.md)；服务器配置和客户端配对见 [部署说明](apps/others/services/DEPLOYMENT.md)。
 

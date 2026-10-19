@@ -8,7 +8,7 @@ import { tmpdir } from 'node:os';
 import path from 'node:path';
 import { fileURLToPath } from 'node:url';
 import { createService } from '../src/server.ts';
-import { Engine } from '../../../runtime/src/engine.mjs';
+import { Engine } from '../../../../packages/dsh-plugin/test/harness.mjs';
 if (!process.argv.includes('--run')) throw new Error('Pass --run to start the isolated browser acceptance fixture');
 const directory = await mkdtemp(path.join(tmpdir(), 'dogo-web-acceptance-'));
 const reservation = http.createServer(); reservation.listen(0, '127.0.0.1'); await once(reservation, 'listening');

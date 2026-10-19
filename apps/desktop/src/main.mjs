@@ -14,13 +14,12 @@ import {
   shell,
   systemPreferences,
 } from "electron";
-import { spawn } from "node:child_process";
-import readline from "node:readline";
 import { fileURLToPath, pathToFileURL } from "node:url";
 import path from "node:path";
 import { existsSync, readFileSync, mkdirSync, writeFileSync, renameSync, rmSync } from 'node:fs';
 import { randomUUID, createHash } from 'node:crypto';
-import { pairingSchema } from '../../runtime/src/relay.mjs';
+import { pairingSchema } from '@dogo/contracts/pairing';
+import { DesktopHost } from './host/client.mjs';
 import { DshWorkspace, workspaceVisibility } from './dsh-workspace.mjs';
 import { DesktopAccount } from './account.mjs';
 
@@ -34,29 +33,18 @@ if (!app.requestSingleInstanceLock()) app.quit();
 else {
   let window,
     tray,
-    child,
+    host,
     workspace,
     quitting = false,
     shutdownStarted = false,
     latest;
-  let sequence = 0;
-  const pending = new Map();
   const entryFile = fileURLToPath(
     new URL("../../web/dist/index.html", import.meta.url),
   );
   const entryUrl = pathToFileURL(entryFile).href;
-  function rpc(method, params) {
-    return new Promise((resolve, reject) => {
-      if (!child || child.exitCode !== null || child.killed)
-        return reject(new Error("本地运行服务不可用，请重启应用"));
-      const id = ++sequence;
-      const timer = setTimeout(() => {
-        pending.delete(id);
-        reject(new Error("运行服务响应超时"));
-      }, ['openDsh', 'connectRelay', 'disconnectRelay', 'refreshRelay', 'memorySync', 'memoryAction', 'prepare'].includes(method) ? 90000 : 30000);
-      pending.set(id, { resolve, reject, timer });
-      child.stdin.write(JSON.stringify({ id, method, params }) + "\n");
-    });
+  async function rpc(method, params) {
+    if (!host) throw new Error('DSH 后端尚未连接');
+    return host.request(method, params);
   }
   function show() {
     if (window) {
@@ -111,45 +99,18 @@ else {
       if (process.env.SSH_AUTH_SOCK) env.SSH_AUTH_SOCK = process.env.SSH_AUTH_SOCK;
       const computerHelper = process.env.DOGO_MAC_HELPER ?? path.join(process.resourcesPath, 'native/dogo-computer');
       if (process.platform === 'darwin' && existsSync(computerHelper)) env.DOGO_MAC_HELPER = computerHelper;
-      child = spawn(
-        nodeBinary,
-        [fileURLToPath(new URL("../../runtime/src/main.mjs", import.meta.url))],
-        {
-          env: { ...env, DOGO_DATA_DIR: directory },
-          stdio: ["pipe", "pipe", "pipe"],
+      host = new DesktopHost(directory, { nodeBinary, env,
+        onOffline: () => {
+          workspace?.backendChanged({ state: 'failed' });
+          if (window && !window.isDestroyed()) window.webContents.send('dogo:snapshot', { ...(latest ?? { tasks: [], workspaces: [] }), runtime: 'offline' });
         },
-      );
-      child.stderr.on("data", (chunk) => process.stderr.write(chunk));
-      const offline = () => {
-        workspace?.backendChanged({ state: 'failed' });
-        for (const { reject, timer } of pending.values()) {
-          clearTimeout(timer);
-          reject(new Error("本地运行服务已断开"));
-        }
-        pending.clear();
-        if (window && !window.isDestroyed())
-          window.webContents.send("dogo:snapshot", {
-            ...(latest ?? { tasks: [], workspaces: [] }),
-            runtime: "offline",
-          });
-      };
-      child.on("error", offline);
-      child.on("exit", offline);
-      child.stdin.on("error", offline);
-      readline.createInterface({ input: child.stdout }).on("line", (line) => {
-        let message;
-        try {
-          message = JSON.parse(line);
-        } catch {
-          return;
-        }
-        if (message.event === "snapshot") {
+        onSnapshot: snapshot => {
           const previous = new Map(
             (latest?.tasks ?? []).map((t) => [t.id, t.status]),
           );
           const previousHub = new Map((latest?.hub?.items ?? []).map(i => [i.id, `${i.state}:${i.status}:${i.answer ?? ''}`]));
           const hadHub = !!latest?.hub?.syncedAt;
-          latest = message.snapshot;
+          latest = snapshot;
           updateTray();
           workspace?.backendChanged(latest.backend);
           if (hadHub && !window?.isFocused() && Notification.isSupported()) {
@@ -178,17 +139,9 @@ else {
               }).show();
           if (window && !window.isDestroyed())
             window.webContents.send("dogo:snapshot", latest);
-        } else {
-          const request = pending.get(message.id);
-          if (request) {
-            clearTimeout(request.timer);
-            pending.delete(message.id);
-            message.error
-              ? request.reject(new Error(message.error))
-              : request.resolve(message.result);
-          }
-        }
+        },
       });
+      await host.start();
       session.defaultSession.setPermissionRequestHandler(
         (_webContents, _permission, callback) => callback(false),
       );
@@ -210,7 +163,8 @@ else {
           webSecurity: true,
         },
       });
-      function trusted(event) {
+      function trusted(event, allowWorkspace = false) {
+        if (allowWorkspace && workspace?.trusted(event)) return;
         if (
           event.sender !== window.webContents ||
           event.senderFrame !== window.webContents.mainFrame ||
@@ -220,6 +174,7 @@ else {
       }
       workspace = new DshWorkspace({
         window, createView: options => new WebContentsView(options),
+        preload: fileURLToPath(new URL('./dsh-preload.cjs', import.meta.url)),
         getUrl: () => rpc('openDsh'), getBackend: () => latest?.backend,
         changed: value => { if (!window.isDestroyed()) window.webContents.send('dogo:workspace', value); },
         confirmExternal: async origin => {
@@ -231,9 +186,9 @@ else {
         openExternal: url => shell.openExternal(url),
       });
       ipcMain.handle('dogo:workspaceSnapshot', event => { trusted(event); return workspace.snapshot(); });
-      ipcMain.handle('dogo:account', (event, input) => { trusted(event); return account.execute(input); });
+      ipcMain.handle('dogo:account', (event, input) => { trusted(event, true); return account.execute(input); });
       ipcMain.handle('dogo:saveArtifact', async (event, input) => {
-        trusted(event);
+        trusted(event, true);
         if (!input || typeof input.id !== 'string' || !/^[a-f0-9-]{36}$/.test(input.id) || input.origin !== latest?.relay?.url) throw new Error('附件身份或服务地址无效');
         const call = args => rpc('hubAction', { op: 'artifactRead', args });
         const meta = await call({ id: input.id });
@@ -250,12 +205,12 @@ else {
       ipcMain.handle('dogo:workspaceReload', async event => { trusted(event); await workspace.load(true); return workspace.snapshot(); });
       window.on('closed', () => workspace.dispose());
       ipcMain.handle('dogo:prepare', async event => {
-        trusted(event);
+        trusted(event, true);
         return rpc('prepare', { screen: process.platform === 'darwin' ? systemPreferences.getMediaAccessStatus('screen') : 'unsupported',
           accessibility: process.platform === 'darwin' && systemPreferences.isTrustedAccessibilityClient(false) });
       });
       ipcMain.handle('dogo:memory', async (event, input) => {
-        trusted(event);
+        trusted(event, true);
         const result = await rpc('memoryAction', input);
         if (input.op !== 'export') return result;
         const selected = await dialog.showSaveDialog(window, { title: '导出 DogO 个人记忆', defaultPath: 'dogo-personal-memory.json', filters: [{ name: 'JSON', extensions: ['json'] }] });
@@ -278,12 +233,16 @@ else {
         "memorySync",
         "capabilitiesConfigure",
       ])
-        ipcMain.handle(`dogo:${method}`, (event, params) => {
-          trusted(event);
+        ipcMain.handle(`dogo:${method}`, async (event, params) => {
+          trusted(event, ['updateProject', 'remotePolicy', 'capabilitiesConfigure'].includes(method));
+          if (['remotePolicy', 'capabilitiesConfigure', 'updateProject'].includes(method)) {
+            const answer = await dialog.showMessageBox(window, { type: 'question', buttons: ['取消', '保存'], defaultId: 0, cancelId: 0, message: '修改 DogO 执行权限', detail: JSON.stringify(params, null, 2) });
+            if (answer.response !== 1) throw new Error('已取消权限修改');
+          }
           return rpc(method, params);
         });
       ipcMain.handle('dogo:importRelay', async (event) => {
-        trusted(event);
+        trusted(event, true);
         if (!encryptionReady()) throw new Error('系统安全存储不可用，未保存设备凭据');
         const expected = process.platform === 'darwin' ? 'mac' : 'win';
         const provisioned = path.join(app.getPath('home'), '.local/share/dogo/relay', `${expected}.json`);
@@ -303,18 +262,18 @@ else {
         return state;
       });
       ipcMain.handle('dogo:registerProject', async (event) => {
-        trusted(event);
+        trusted(event, true);
         const selected = await dialog.showOpenDialog(window, { title: '登记项目文件夹（用于无人值守执行）', buttonLabel: '登记项目', properties: ['openDirectory'] });
         if (selected.canceled) return null;
         return rpc('registerProject', { path: selected.filePaths[0] });
       });
       ipcMain.handle('dogo:openMemory', async (event) => {
-        trusted(event);
+        trusted(event, true);
         const folder = path.join(directory, 'personal-memory'); mkdirSync(folder, { recursive: true, mode: 0o700 });
         const error = await shell.openPath(folder); if (error) throw new Error(error); return true;
       });
       ipcMain.handle('dogo:loginItem', (event, input) => {
-        trusted(event);
+        trusted(event, true);
         if (input?.enabled !== undefined) {
           if (typeof input.enabled !== 'boolean') throw new Error('无效自启设置');
           if (!app.isPackaged) throw new Error('请安装 DogO.app 后设置登录自启，开发版不会注册独立后台进程');
@@ -411,10 +370,10 @@ else {
       );
       await window.loadFile(entryFile);
     })
-    .catch((error) => {
+    .catch(async (error) => {
       dialog.showErrorBox("DogO 启动失败", error.message);
       quitting = true;
-      child?.kill();
+      await host?.close().catch(() => {});
       app.exit(1);
     });
   app.on("before-quit", async (event) => {
@@ -441,7 +400,7 @@ else {
       }
       await rpc("shutdown");
     } catch {
-      child?.kill();
+      await host?.close().catch(() => {});
     }
     quitting = true;
     workspace?.dispose();

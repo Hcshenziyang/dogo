@@ -7,7 +7,7 @@ import path from 'node:path';
 import readline from 'node:readline';
 import { setTimeout as delay } from 'node:timers/promises';
 import assert from 'node:assert/strict';
-import { Engine } from '../../runtime/src/engine.mjs';
+import { Engine } from '../../../packages/dsh-plugin/test/harness.mjs';
 if (!process.argv.includes('--run')) throw new Error('Pass --run to briefly focus a synthetic window and test real GUI controls');
 process.env.DOGO_MAC_HELPER = fileURLToPath(new URL('../build/dogo-computer', import.meta.url));
 const root = await mkdtemp(path.join(tmpdir(), 'dogo-computer-acceptance-'));

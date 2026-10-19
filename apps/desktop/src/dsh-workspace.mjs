@@ -1,5 +1,5 @@
 // DogO owns this host, not the upstream page. No DOM injection, route scraping,
-// copied DSH UI or privileged preload: upstream UI changes stay inside the view.
+// copied DSH UI. A narrow preload exposes only native operations, checked again by the main process.
 export const WORKSPACE_TOP = 64;
 
 export function localWorkspaceUrl(value) {
@@ -28,12 +28,13 @@ export function workspaceVisibility(value) {
 }
 
 export class DshWorkspace {
-  constructor({ window, createView, getUrl, getBackend, changed, confirmExternal, openExternal }) {
-    Object.assign(this, { window, createView, getUrl, getBackend, changed, confirmExternal, openExternal });
+  constructor({ window, createView, getUrl, getBackend, changed, confirmExternal, openExternal, preload }) {
+    Object.assign(this, { window, createView, getUrl, getBackend, changed, confirmExternal, openExternal, preload });
     this.phase = 'idle'; this.message = ''; this.visible = false; this.epoch = 0;
     this.resize = () => this.layout();
     window.on('resize', this.resize);
   }
+  trusted(event) { return !this.disposed && this.phase === 'ready' && event.sender === this.view?.webContents && event.senderFrame === this.view.webContents.mainFrame && sameWorkspace(event.senderFrame.url, this.origin); }
   snapshot() { return { phase: this.phase, message: this.message, visible: this.visible }; }
   publish(phase, message = '') {
     this.phase = phase; this.message = message; this.layout(); this.changed(this.snapshot());
@@ -68,6 +69,7 @@ export class DshWorkspace {
   attach() {
     if (this.view) return;
     const view = this.createView({ webPreferences: {
+      ...(this.preload ? { preload: this.preload } : {}),
       partition: 'persist:dogo-dsh-workspace', contextIsolation: true, sandbox: true,
       nodeIntegration: false, nodeIntegrationInSubFrames: false, webviewTag: false,
       webSecurity: true, allowRunningInsecureContent: false,

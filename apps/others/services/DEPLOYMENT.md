@@ -71,7 +71,7 @@ nginx -t
 
 ### 更新与凭据
 
-部署产物由 `pnpm --filter @dogo/services deploy --prod <临时目录>` 打包，再运行 `scripts/package-deployment.mjs <目录> <域名>`。
+先运行 `pnpm --filter @dogo/sync-client build`，再由 `pnpm --filter @dogo/services deploy --prod <临时目录>` 打包，再运行 `scripts/package-deployment.mjs <目录> <域名>`。
 首次部署包保留相对 pnpm 符号链接，拒绝静默覆盖不同域名的凭据；首次包含令牌，必须私下传输、限制为 0600，不能公开上传。
 `deploy-server.sh ... prepare` 是首次部署脚本，遇到已有配置即停止；不要在当前服务器重跑。更新使用新的 release 目录，检查依赖后切换 current，再重启/验证；保留上一版以便回退。
 初次 v1 因 pnpm 链接打包不正确启动失败，当前已切到修复的 v2；v1 仅留作排错，不作为可用回退版本。
@@ -89,3 +89,5 @@ Android 原生测试包发出合成任务，在实际 Mac 窗口人工确认只�
 用户真实手机 UI、模型分析、Windows、系统后台推送、记忆同步及异地灾备不在本轮验收范围。
 
 最新验证以仓库根目录 [STATUS](../../../STATUS.md) 为准。
+
+插件化改版抽出共享同步客户端。代码更新脚本 `package-update.mjs` 会构建并携带 `shared-sync` JS，生成包内相对导入；旧服务器无需安装 workspace 包。首次完整 deploy 必须包含已构建的共享包，打包脚本在生成凭据前检查它能否加载。不要仅复制新的 `services/src` 到旧 release。

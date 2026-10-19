@@ -33,7 +33,7 @@ export async function sessionBridge(ctx, home, ownership) {
   };
   await save();
   const checkpoint = setInterval(() => { if (dirty) { dirty = false; void save().catch(() => { dirty = true; }); } }, 1000);
-  checkpoint.unref?.(); ctx.on('dispose', async () => { clearInterval(checkpoint); await save(); });
+  checkpoint.unref?.(); ctx.effect(() => async () => { clearInterval(checkpoint); await save(); });
   const pending = new Map();
   const attached = new WeakSet();
   const forwarded = new WeakSet();

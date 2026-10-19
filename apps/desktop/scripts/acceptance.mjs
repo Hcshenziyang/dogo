@@ -7,7 +7,9 @@ import path from 'node:path';
 import { createRequire } from 'node:module';
 import { fileURLToPath } from 'node:url';
 import { spawn } from 'node:child_process';
-import { Engine } from '../../runtime/src/engine.mjs';
+import { Store } from '../../../packages/dsh-plugin/src/host/store.mjs';
+import { parse, stringify } from 'yaml';
+import { readFile, writeFile } from 'node:fs/promises';
 
 const require = createRequire(import.meta.url);
 const reuse = process.argv[2];
@@ -35,9 +37,14 @@ const server = http.createServer(async (req, res) => {
   console.log(JSON.stringify({ fixtureRequest: requests, followup, slow }));
 });
 server.listen(0, '127.0.0.1'); await once(server, 'listening');
-const engine = new Engine(path.join(home, 'local'));
-engine.configure({ ...engine.store.settings(), endpoint: `http://127.0.0.1:${server.address().port}/v1`, model: 'workspace-fixture' });
-await engine.close();
+const store = new Store(path.join(home, 'local'));
+store.configure({ ...store.settings(), endpoint: `http://127.0.0.1:${server.address().port}/v1`, model: 'workspace-fixture' });
+store.close();
+// Reused acceptance profiles keep the user-managed model but must point to this new fixture port.
+const patch = path.join(home, 'local/dsh/profiles/dogo/cordis.patch.yml');
+try { const rows = parse(await readFile(patch, 'utf8')); const provider = rows.find(row => row.id === 'llm-pi-ai')?.config?.providers?.['dogo-local'];
+  if (provider) { provider.baseURL = `http://127.0.0.1:${server.address().port}/v1`; await writeFile(patch, stringify(rows)); }
+} catch (error) { if (error.code !== 'ENOENT') throw error; }
 console.log(JSON.stringify({ isolatedUserData: home, paired: false, model: 'workspace-fixture' }));
 const child = spawn(packaged ? path.join(packaged, 'Contents/MacOS/DogO') : require('electron'), packaged ? [] : [fileURLToPath(new URL('..', import.meta.url))], {
   stdio: 'inherit', env: { ...process.env, DOGO_NODE: packaged ? path.join(packaged, 'Contents/Resources/node/bin/node') : process.execPath, DOGO_USER_DATA_DIR: home, DOGO_DATA_DIR: path.join(home, 'local') },

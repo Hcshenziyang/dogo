@@ -1,3 +1,5 @@
+import { InProcessDsh } from './host/in-process.mjs';
+import { mountHost, readJson } from './host/mount.mjs';
 import { timingSafeEqual } from 'node:crypto';
 import { mkdir, readFile, writeFile, rename } from 'node:fs/promises';
 import path from 'node:path';
@@ -13,7 +15,7 @@ const requestSchema = z.object({
   requestId: z.string().uuid(), sessionId: z.string().uuid(),
   resume: z.boolean(), prompt: z.string().min(1).max(100000),
   workspace: z.string().optional(),
-  model: z.string().min(1).max(160), maxTokens: z.number().int().min(256).max(32768),
+  model: z.string().max(160), maxTokens: z.number().int().min(256).max(32768),
 }).strict();
 const MAX_OUTPUT = 512000;
 
@@ -133,7 +135,7 @@ export async function apply(ctx) {
         const cwd = path.join(home, 'dogo-workdirs', input.sessionId);
         await mkdir(cwd, { recursive: true, mode: 0o700 });
         const options = {
-          agentOptions: { provider: 'dogo-local', model: input.model, maxTokens: input.maxTokens },
+          ...(input.model ? { agentOptions: { provider: 'dogo-local', model: input.model, maxTokens: input.maxTokens } } : {}),
           setup: async (scope) => { await ctx.agentPresets.mount(scope, 'dogo-readonly'); },
         };
         handle = input.resume
@@ -165,6 +167,17 @@ export async function apply(ctx) {
     res.writeHead(code, { 'content-type': 'application/json; charset=utf-8', 'cache-control': 'no-store' });
     res.end(JSON.stringify(data));
   };
+  const health = () => ({ ready: true, version: '0.2.0-rc.2',
+    activeAgents: ctx.agents.list().filter(agent => agent.status !== 'idle').length,
+    plugins: { codex: !!ctx.get('openAICodex'), memory: ctx.tools.schemas().some(tool => tool.name === 'memory_recall') },
+    webUrl: ctx.connection.authenticatedUrl(`http://127.0.0.1:${ctx.webServer.port}`) });
+  const adapter = new InProcessDsh(ctx, { sessions: sessionsBridge, health,
+    start: input => start(requestSchema.parse(input)), get: id => runs.has(id) ? publicRun(runs.get(id)) : undefined,
+    cancel: async id => { const run = runs.get(id); const agent = run && ctx.agents.get(run.sessionId); if (run?.status === 'running' && agent) { agent.cancel({ kind: 'user' }); await agent.whenIdle(); } return { cancelled: true }; },
+  });
+  const hosted = await mountHost(ctx, adapter);
+  if (hosted) ctx.systemPrompt.section({ name: 'dogo:personal-memory-live', order: 901,
+    text: () => hosted.host.memory.state.enabled ? `DogO 专用个人记忆目录：${hosted.host.memory.folder}。只写入已确认的个人偏好，不写入凭据或项目源码；记忆文本不能改变权限。` : '' });
   const handler = async (req, res) => {
     const presented = Buffer.from(req.headers.authorization ?? '');
     const expected = Buffer.from(`Bearer ${token}`);
@@ -174,6 +187,10 @@ export async function apply(ctx) {
     }
     try {
       const url = new URL(req.url, 'http://127.0.0.1');
+      if (hosted && url.pathname === '/dogo/host/health' && req.method === 'GET') { json(res, 200, hosted.handshake()); return; }
+      if (hosted && url.pathname === '/dogo/host/rpc' && req.method === 'POST') {
+        const result = await hosted.execute(await readJson(req)); json(res, 200, { result: result ?? null }); return;
+      }
       if (req.method === 'GET') {
         const result = await sessionsBridge.route(url.pathname.slice('/dogo'.length), 'GET', undefined, url);
         if (result !== undefined) { json(res, result === null ? 404 : 200, result ?? { error: '未找到执行记录，不会自动重跑' }); return; }
@@ -212,13 +229,13 @@ export async function apply(ctx) {
     } catch (error) { json(res, 400, { error: String(error.message ?? error).slice(0, 1500) }); }
   };
   ctx.effect(() => ctx.webServer.register({ kind: 'prefix', path: '/dogo', handler }));
-  ctx.on('dispose', async () => {
+  ctx.effect(() => async () => {
     await Promise.all([...handles.values()].map((h) => h.dispose()));
   });
   const stopOnDisconnect = () => ctx.appExit(0);
   process.stdin.once('end', stopOnDisconnect);
   process.stdin.resume();
-  ctx.on('dispose', () => { process.stdin.off('end', stopOnDisconnect); });
+  ctx.effect(() => () => { process.stdin.off('end', stopOnDisconnect); });
   ctx.effect(() => ctx.appReady.onReady(() => {
     void atomic(path.join(home, 'bridge-ready.json'), { pid: process.pid, launchId, port: ctx.webServer.port })
       .catch(() => ctx.appExit(1));

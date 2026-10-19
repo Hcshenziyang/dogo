@@ -3,6 +3,39 @@
   "version": "0.1.0",
   "private": true,
   "type": "module",
-  "exports": { ".": "./src/index.mjs", "./workspace": "./src/workspace.mjs" },
-  "dependencies": { "@deepseek-ai/dsh-llm": "0.2.0-rc.2", "@deepseek-ai/dsh-scope": "0.2.0-rc.2", "zod": "4.6.7" }
+  "exports": {
+    ".": "./src/index.mjs",
+    "./workspace": "./src/workspace.mjs",
+    "./package.json": "./package.json",
+    "./client": "./dist/client.js"
+  },
+  "dependencies": {
+    "@deepseek-ai/dsh-llm": "0.2.0-rc.2",
+    "@deepseek-ai/dsh-scope": "0.2.0-rc.2",
+    "zod": "4.6.7",
+    "@dogo/contracts": "workspace:*",
+    "@dogo/hub-ui": "workspace:*",
+    "react": "19.3.1",
+    "lucide-react": "0.468.0",
+    "@dogo/sync-client": "workspace:*"
+  },
+  "scripts": {
+    "test": "node --test test/*.test.mjs",
+    "build": "pnpm --filter @dogo/sync-client build && node scripts/build-client.mjs",
+    "typecheck": "tsc --noEmit"
+  },
+  "devDependencies": {
+    "vite": "8.3.4",
+    "typescript": "7.0.2",
+    "@types/react": "19.3.0"
+  },
+  "dsh": {
+    "client": {
+      "platform": "web",
+      "inject": [
+        "@deepseek-ai/dsh-client-ui-layout",
+        "@deepseek-ai/dsh-client-ui-sidebar"
+      ]
+    }
+  }
 }

@@ -1,1 +1,13 @@
-{ "name": "@dogo/contracts", "version": "0.0.0", "private": true, "type": "module" }
+{
+  "name": "@dogo/contracts",
+  "version": "0.0.0",
+  "private": true,
+  "type": "module",
+  "exports": {
+    "./pairing": "./src/pairing.mjs",
+    "./host": "./src/host.mjs"
+  },
+  "dependencies": {
+    "zod": "4.6.7"
+  }
+}

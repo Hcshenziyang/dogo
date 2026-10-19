@@ -10,6 +10,8 @@ const scripts = dirname(fileURLToPath(import.meta.url));
 const [packagePath, hostname] = process.argv.slice(2);
 if (!packagePath || !/^[a-z0-9-]+(?:\.[a-z0-9-]+)+$/.test(hostname ?? ''))
   throw new Error('Usage: node package-deployment.mjs <pnpm deploy directory> <hostname>');
+// Verify the new shared dependency before generating or copying any private credentials.
+execFileSync(process.execPath, ['--input-type=module', '-e', 'await import("@dogo/sync-client/schema")'], { cwd: resolve(packagePath), stdio: 'pipe' });
 const privateRoot = join(homedir(), '.local/share/dogo/relay');
 mkdirSync(privateRoot, { recursive: true, mode: 0o700 });
 chmodSync(privateRoot, 0o700);

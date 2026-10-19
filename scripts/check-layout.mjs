@@ -11,11 +11,11 @@ for (const path of required) assert(existsSync(join(root, path)), `Missing: ${pa
 
 const packages = new Map([
   ['.', 'dogo'], ['apps/web', '@dogo/web'], ['apps/desktop', '@dogo/desktop'],
-  ['apps/runtime', '@dogo/runtime'], ['packages/contracts', '@dogo/contracts'],
+   ['packages/contracts', '@dogo/contracts'],
   ['apps/mobile', '@dogo/mobile'], ['apps/others', '@dogo/others'],
   ['apps/others/services', '@dogo/services'],
   ['packages/dsh-plugin', '@dogo/dsh-plugin'],
-  ['packages/hub-ui', '@dogo/hub-ui'],
+  ['packages/hub-ui', '@dogo/hub-ui'], ['packages/sync-client', '@dogo/sync-client'],
 ]);
 for (const [path, name] of packages) {
   const manifest = JSON.parse(readFileSync(join(root, path, 'package.json'), 'utf8'));

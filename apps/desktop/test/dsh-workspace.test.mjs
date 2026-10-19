@@ -106,3 +106,18 @@ test('failed loading never exposes authenticated URL and close during startup ne
   closing.host.dispose(); release('http://127.0.0.1:12345/'); await pending;
   assert.equal(closing.views.length, 0);
 });
+
+test('native preload accepts only the current DSH main frame and revokes trust after crash/disposal', async () => {
+  const f = fixture({ preload: '/app/dsh-preload.cjs' }); await f.host.show(true);
+  const contents = f.views[0].webContents;
+  contents.mainFrame = { url: 'http://127.0.0.1:12345/' };
+  const event = { sender: contents, senderFrame: contents.mainFrame };
+  assert.equal(f.views[0].options.webPreferences.preload, '/app/dsh-preload.cjs');
+  assert(f.host.trusted(event));
+  assert(!f.host.trusted({ ...event, sender: {} }));
+  assert(!f.host.trusted({ ...event, senderFrame: { url: contents.mainFrame.url } }));
+  contents.mainFrame.url = 'https://example.com'; assert(!f.host.trusted(event));
+  contents.mainFrame.url = 'http://127.0.0.1:12345/'; assert(f.host.trusted(event));
+  contents.emit('render-process-gone'); assert(!f.host.trusted(event));
+  f.host.dispose(); assert(!f.host.trusted(event));
+});
