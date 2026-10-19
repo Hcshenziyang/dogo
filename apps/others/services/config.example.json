@@ -1,0 +1,16 @@
+{
+  "host": "127.0.0.1",
+  "port": 8787,
+  "database": "./data/services.sqlite",
+  "services": ["tasks", "memory"],
+  "devices": [
+    { "id": "mac", "tokenEnv": "DOGO_MAC_TOKEN", "publishTo": ["/tasks/mac", "/tasks/win", "/tasks/phone"], "memory": true },
+    { "id": "win", "tokenEnv": "DOGO_WIN_TOKEN", "publishTo": ["/tasks/mac", "/tasks/win", "/tasks/phone"], "memory": true },
+    { "id": "phone", "tokenEnv": "DOGO_PHONE_TOKEN", "publishTo": ["/tasks/mac", "/tasks/win", "/tasks/phone"], "memory": true }
+  ],
+  "mailboxes": {
+    "/tasks/mac": "mac",
+    "/tasks/win": "win",
+    "/tasks/phone": "phone"
+  }
+}

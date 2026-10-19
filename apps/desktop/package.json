@@ -1,1 +1,16 @@
-{ "name": "@dogo/desktop", "version": "0.0.0", "private": true, "type": "module" }
+{
+  "name": "@dogo/desktop",
+  "version": "0.4.0",
+  "private": true,
+  "type": "module",
+  "main": "src/main.mjs",
+  "scripts": {
+    "test": "node --test test/*.test.mjs",
+    "acceptance": "pnpm --filter @dogo/web build && node scripts/acceptance.mjs",
+    "package:mac": "node scripts/package-mac.mjs",
+    "dev": "pnpm --filter @dogo/web build && node scripts/launch.mjs"
+  },
+  "devDependencies": {
+    "electron": "44.7.2"
+  }
+}

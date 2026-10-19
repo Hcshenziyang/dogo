@@ -1,4 +1,4 @@
-name: Workspace skeleton check
+name: Workspace and service checks
 on:
   push:
   pull_request:
@@ -16,3 +16,13 @@ jobs:
         with:
           node-version: '24'
       - run: node scripts/check-layout.mjs
+      - run: npm install --global pnpm@11.22.0
+      - run: pnpm install --frozen-lockfile --ignore-scripts
+      - run: pnpm typecheck
+      - run: pnpm test:services
+      - run: pnpm test:mobile
+      - run: pnpm test:desktop
+      - run: pnpm build:mobile
+      - run: pnpm build:desktop
+      - run: pnpm test:runtime
+        if: runner.os != 'Windows'

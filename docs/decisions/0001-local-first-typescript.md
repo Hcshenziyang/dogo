@@ -3,6 +3,8 @@
 日期：2026-10-16
 状态：技术方向已确认；版本和集成方式待原型验证。
 
+2026-10-18：执行引擎部分由 [0004：上游 DSH](0004-upstream-dsh.md) 替代。React/Electron/Node.js 与本地优先边界保持；以下保留原决策记录。
+
 ## 背景
 
 旧项目绑定 SwiftUI、WKWebView 与 DSH。新产品以个人为中心，需要覆盖网页、macOS 和 Windows，

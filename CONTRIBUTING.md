@@ -1,6 +1,6 @@
 # 开发约定
 
-当前处于需求确认阶段，暂无可运行产品；许可证未选定，暂不接受外部代码贡献。
+当前有服务器服务原型，助理客户端尚未实现；许可证未选定，暂不接受外部代码贡献。
 
 - 先阅读 PRODUCT.md、ARCHITECTURE.md、PLAN.md 和 STATUS.md。
 - 未确认需求保持“候选/待确认”，不要因文档已有描述就直接实现。
@@ -9,5 +9,5 @@
 - 不提交模型权重、个人记忆、会话、凭据、日志、旧项目数据或打包产物。
 - 保留第三方版权和许可；复用旧代码前核对许可及来源。
 - 保护所有 `note-szy:` 注释，具体规则见 AGENTS.md。
-- 当前检查命令：`node scripts/check-layout.mjs` 或 `pnpm check`。
+- 检查命令：`pnpm check`（骨架）、`pnpm typecheck`、`pnpm test:services`（服务器原型）。
 - 后续引入依赖时固定兼容版本并提交锁文件；实际 CI 与平台验证结果写入 STATUS.md。

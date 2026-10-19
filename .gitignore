@@ -2,8 +2,10 @@ node_modules/
 dist/
 out/
 release/
+apps/desktop/build/
 coverage/
 .cache/
+.preview/
 .DS_Store
 Thumbs.db
 .env
@@ -22,3 +24,29 @@ data/
 models/
 *.safetensors
 *.gguf
+*.apk
+*.aab
+*.jks
+*.keystore
+# Private pairing, signing and deployment files must stay outside source control.
+credentials.env
+signing.json
+mac.json
+phone.json
+win.json
+relay-test-pair.json
+relay.enc*
+relay-credential.enc*
+*.local.json
+*.p12
+*.pfx
+*.p8
+# Distributables and deployment archives can contain runtime data or credentials.
+*.tgz
+*.tar.gz
+*.zip
+*.dmg
+*.app/
+**/android/.gradle/
+**/android/**/build/
+**/android/local.properties
