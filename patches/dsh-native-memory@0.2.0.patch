@@ -1,0 +1,12 @@
+diff --git a/lib/index.mjs b/lib/index.mjs
+--- a/lib/index.mjs
++++ b/lib/index.mjs
+@@ -350,7 +350,7 @@ function callerOf(exec) {
+ 		agent,
+ 		cwd,
+ 		sessionId: agent.session.id,
+-		seq: agent.session.events.length
++		seq: agent.session.seq
+ 	};
+ }
+ function parseArgs(schema, raw, tool) {

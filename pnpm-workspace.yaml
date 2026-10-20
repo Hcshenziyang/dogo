@@ -2,6 +2,8 @@ packages:
   - apps/*
   - apps/others/*
   - packages/*
+patchedDependencies:
+  dsh-native-memory@0.2.0: patches/dsh-native-memory@0.2.0.patch
 allowBuilds:
   '@deepseek-ai/dsh-subprocess-local': true
   '@google/genai': false

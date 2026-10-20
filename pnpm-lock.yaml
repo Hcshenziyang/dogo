@@ -4,6 +4,9 @@ settings:
   autoInstallPeers: true
   excludeLinksFromLockfile: false
 
+patchedDependencies:
+  dsh-native-memory@0.2.0: 8107b9d19bd7282578afa6df9d05795892b5cb06c1a78a2ee5188c29a32fa13b
+
 importers:
 
   .: {}
@@ -24,7 +27,7 @@ importers:
         version: 0.3.2(ec115ac23d5a94b33cac043b786c58f7)
       dsh-native-memory:
         specifier: 0.2.0
-        version: 0.2.0(@deepseek-ai/cordis@4.0.5)
+        version: 0.2.0(patch_hash=8107b9d19bd7282578afa6df9d05795892b5cb06c1a78a2ee5188c29a32fa13b)(@deepseek-ai/cordis@4.0.5)
       yaml:
         specifier: 2.9.0
         version: 2.9.0
@@ -9833,7 +9836,7 @@ snapshots:
     transitivePeerDependencies:
       - '@deepseek-ai/dsh-compaction'
 
-  dsh-native-memory@0.2.0(@deepseek-ai/cordis@4.0.5):
+  dsh-native-memory@0.2.0(patch_hash=8107b9d19bd7282578afa6df9d05795892b5cb06c1a78a2ee5188c29a32fa13b)(@deepseek-ai/cordis@4.0.5):
     dependencies:
       zod: 4.6.7
     optionalDependencies:
