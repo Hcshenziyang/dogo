@@ -7,6 +7,8 @@ import { ScopedMemory, recordPath } from '../src/host/scoped-memory.mjs';
 import { MemoryFiles } from '../src/host/memory-files.mjs';
 import { PersonalMemory } from '../src/host/memory.mjs';
 import { registerMemory, MEMORY_GUIDANCE } from '../src/memory-tools.mjs';
+import { legacyMemory } from '../src/legacy-memory.mjs';
+import { memoryInput } from '../src/host/scoped-memory.mjs';
 
 const origin = { sessionId: 'session-fixture', seq: 42, callId: 'call-one' };
 async function fixture(t) {
@@ -79,7 +81,7 @@ test('agent tools, settings and sync share files; automatic policy, queue and ca
   await assert.rejects(memory.recordAction({ action: 'create', scope: 'personal', text: 'aborted' }, origin, abort.signal), { name: 'AbortError' });
 });
 
-test('scope guidance reaches the prompt and tool schema; legacy tools are masked, legacy bridge is read only', async t => {
+test('scope guidance reaches the prompt and tool schema; legacy tools are masked and reads expose versions', async t => {
   const { root } = await fixture(t);
   const engine = { directory: root, store: { value: (_k, fallback) => fallback }, dsh: {}, relay: {}, changed() {} };
   const memory = new PersonalMemory(engine); t.after(() => memory.close());
@@ -89,7 +91,9 @@ test('scope guidance reaches the prompt and tool schema; legacy tools are masked
   tools.set('memory_recall', { execute: async () => 'old fact' });
   tools.set('memory_profile', { execute: async () => 'old profile' });
   const agent = { session: { id: origin.sessionId, seq: origin.seq, header: { cwd: '/synthetic' } }, ctx: { tools: { restrict: ({ deny }) => { denied.push(...deny); return () => { released = true; }; } } } };
-  const ctx = { tools: { get: name => tools.get(name), register: tool => tools.set(tool.name, tool) },
+  const oldFact = { id: 'e91481cd-e6ae-449e-9f8e-9d8cdaf103b1', text: 'old fact', tags: [], workspacePath: '/synthetic', state: 'active', updatedAt: 0 };
+  const ctx = { get: () => ({ get: () => ({ table: () => new Map([[oldFact.id, oldFact]]) }) }),
+    tools: { get: name => tools.get(name), register: tool => tools.set(tool.name, tool) },
     on() {}, effect: install => disposers.push(install()), agents: { list: () => [agent] }, systemPrompt: { section: section => prompts.push(section) } };
   registerMemory(ctx, memory);
   assert(denied.includes('memory_remember')); assert(denied.includes('memory_recall'));
@@ -104,7 +108,43 @@ test('scope guidance reaches the prompt and tool schema; legacy tools are masked
   assert(prompt.includes('Personal fixture')); assert(prompt.includes(origin.sessionId));
   await assert.rejects(tool.execute({ action: 'legacy_read', scope: 'session', scopeId: 'other', query: 'old' }, exec), /current session/);
   const legacy = JSON.parse(await tool.execute({ action: 'legacy_read', scope: 'session', scopeId: origin.sessionId, query: 'old' }, exec));
-  assert.equal(legacy.legacy, true); assert.equal(legacy.facts, 'old fact');
+  assert.equal(legacy.legacy, true); assert.equal(legacy.records[0].text, 'old fact');
+  assert.match(legacy.records[0].version, /^[a-f0-9]{64}$/);
   for (const dispose of disposers) dispose();
   assert.equal(released, true, 'unloading the plugin releases legacy tool masks');
+});
+
+test('legacy file cleanup requires complete versioned reads, preserves backups and cannot cross into scoped records', async t => {
+  const { root } = await fixture(t);
+  const values = new Map();
+  const engine = { directory: root, store: { value: (key, fallback) => values.get(key) ?? fallback, setValue: (key, value) => values.set(key, value) }, dsh: {}, relay: {}, changed() {} };
+  const memory = new PersonalMemory(engine); t.after(() => memory.close());
+  const exec = { signal: new AbortController().signal };
+  const call = input => legacyMemory({}, memory, memoryInput.parse({ scope: 'personal', ...input }), exec);
+  const text = 'Old fixture '.repeat(500);
+  await memory.action({ op: 'write', args: { path: 'legacy.md', base: null, content: text } });
+  const listed = await call({ action: 'legacy_read' });
+  assert.equal(listed.files[0].truncated, true); assert.equal(listed.files[0].version, undefined);
+  const read = await call({ action: 'legacy_read', path: 'legacy.md' });
+  assert.equal(read.files[0].content, text); assert.equal(read.files[0].truncated, false);
+  await assert.rejects(call({ action: 'legacy_forget', path: '../legacy.md', version: read.files[0].version }));
+  await memory.configure({ automatic: false });
+  assert.equal(memory.maintenanceController.signal.aborted, true);
+  await assert.rejects(call({ action: 'legacy_forget', path: 'legacy.md', version: read.files[0].version }), /disabled/);
+  await memory.configure({ automatic: true });
+  assert.equal(memory.maintenanceController.signal.aborted, false);
+  await memory.action({ op: 'write', args: { path: 'legacy.md', base: text, content: 'Changed after reading' } });
+  await assert.rejects(call({ action: 'legacy_forget', path: 'legacy.md', version: read.files[0].version }), /changed/);
+  const current = (await call({ action: 'legacy_read', path: 'legacy.md' })).files[0];
+  const saved = await memory.recordAction({ action: 'create', scope: 'personal', text: 'Keep new record' }, origin);
+  await assert.rejects(call({ action: 'legacy_forget', path: saved.path, version: saved.version }), /explicit scope/);
+  const removed = await call({ action: 'legacy_forget', path: 'legacy.md', version: current.version });
+  assert.equal(removed.deleted, true); assert.equal(removed.historyRetained, true);
+  assert.equal(removed.sync, 'waiting-for-connection');
+  assert.equal((await call({ action: 'legacy_read' })).total, 0);
+  assert.equal((await memory.recordAction({ action: 'search', scope: 'personal' })).total, 1);
+  const { readdir, readFile } = await import('node:fs/promises');
+  const backups = path.join(memory.folder, '.dogo-sync/backups');
+  const copies = await Promise.all((await readdir(backups)).map(file => readFile(path.join(backups, file), 'utf8')));
+  assert(copies.some(value => JSON.parse(value).content === 'Changed after reading'));
 });

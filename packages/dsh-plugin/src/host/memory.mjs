@@ -5,7 +5,7 @@ import { z } from 'zod';
 import { syncFolder } from '@dogo/sync-client/sync';
 import { ServiceClient } from '@dogo/sync-client/client';
 import { MemoryFiles } from './memory-files.mjs';
-import { ScopedMemory } from './scoped-memory.mjs';
+import { ScopedMemory, memoryVersion } from './scoped-memory.mjs';
 
 export class PersonalMemory {
   constructor(engine) {
@@ -13,6 +13,7 @@ export class PersonalMemory {
     this.folder = path.join(engine.directory, 'personal-memory');
     this.files = new MemoryFiles(this.folder);
     this.records = new ScopedMemory(this.files);
+    this.maintenanceController = new AbortController();
     this.state = { enabled: engine.store.value('memory-enabled', true), automatic: engine.store.value('memory-automatic', true), folder: this.folder, syncing: false, at: null, error: '', conflicts: [], report: null };
     engine.dsh.personalMemoryPath = this.state.enabled ? this.folder : undefined;
   }
@@ -22,15 +23,32 @@ export class PersonalMemory {
     this.operations = result.catch(() => {});
     return result;
   }
-  legacyFiles(query) {
+  legacyFiles({ query, path: selected, offset, limit }) {
     return this.exclusive(() => {
+      if (selected?.startsWith('records/')) throw new Error('Use read for scoped records, not legacy_read');
       const terms = query.toLocaleLowerCase().split(/\s+/).filter(Boolean);
-      const found = this.files.list().filter(file => !file.startsWith('records/')).flatMap(file => {
+      const found = (selected ? [selected] : this.files.list().filter(file => !file.startsWith('records/'))).flatMap(file => {
         const content = this.files.read(file);
-        return terms.every(term => `${file}\n${content}`.toLocaleLowerCase().includes(term)) ? [{ path: file, content: content.slice(0, 4000), truncated: content.length > 4000 }] : [];
+        if (content === null) throw new Error('Legacy file not found');
+        return terms.every(term => `${file}\n${content}`.toLocaleLowerCase().includes(term)) ? [{ path: file, version: selected || content.length <= 4000 ? memoryVersion(content) : undefined,
+          content: selected ? content : content.slice(0, 4000), truncated: !selected && content.length > 4000 }] : [];
       });
-      return { legacy: true, files: found.slice(0, 10), total: found.length, note: 'Read-only existing personal files. These excerpts do not create scoped records; full files remain available in settings.' };
+      return { legacy: true, files: found.slice(offset, offset + limit), total: found.length,
+        note: 'Read a truncated file by exact path before cleanup. legacy_forget deletes the WHOLE file by path/version, retaining recovery backups; do not delete unrelated facts.' };
     });
+  }
+  async forgetLegacyFile({ path: file, version }, signal) {
+    const result = await this.exclusive(() => {
+      signal?.throwIfAborted();
+      if (!this.state.automatic || this.engine.closing) throw new Error('Agent memory maintenance is disabled or DogO is closing');
+      if (file.startsWith('records/')) throw new Error('Use delete with an explicit scope for scoped records');
+      const before = this.files.read(file);
+      if (before === null || memoryVersion(before) !== version) throw new Error('Legacy file changed or was deleted; read it again before retrying');
+      this.files.write(file, null, before);
+      return { legacy: true, scope: 'personal', path: file, deleted: true, historyRetained: true };
+    });
+    this.engine.changed(); void this.sync();
+    return { ...result, sync: !this.state.enabled ? 'disabled' : !this.snapshot().connected ? 'waiting-for-connection' : 'queued' };
   }
   async recordAction(input, origin, signal) {
     const mutation = ['create', 'update', 'delete'].includes(input.action);
@@ -69,7 +87,11 @@ export class PersonalMemory {
     const { enabled, automatic } = z.object({ enabled: z.boolean().optional(), automatic: z.boolean().optional() }).strict()
       .refine(value => value.enabled !== undefined || value.automatic !== undefined).parse(input);
     if (enabled !== undefined) { this.engine.store.setValue('memory-enabled', enabled); this.state.enabled = enabled; }
-    if (automatic !== undefined) { this.engine.store.setValue('memory-automatic', automatic); this.state.automatic = automatic; }
+    if (automatic !== undefined) {
+      this.engine.store.setValue('memory-automatic', automatic); this.state.automatic = automatic;
+      if (!automatic) this.maintenanceController.abort();
+      else if (this.maintenanceController.signal.aborted) this.maintenanceController = new AbortController();
+    }
     this.engine.dsh.personalMemoryPath = this.state.enabled ? this.folder : undefined;
     await mkdir(this.folder, { recursive: true, mode: 0o700 });
     this.engine.changed();
@@ -134,5 +156,5 @@ export class PersonalMemory {
       await call('defer', { id: candidate.id, executionId, reason: String(e.message ?? e).slice(0, 4000) }).catch(() => {});
     } finally { this.active.delete(candidate.id); this.controller = undefined; }
   }
-  async close() { this.controller?.abort(); await this.operations; await this.pending; }
+  async close() { this.maintenanceController.abort(); this.controller?.abort(); await this.operations; await this.pending; }
 }

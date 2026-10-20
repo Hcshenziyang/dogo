@@ -1,7 +1,15 @@
 diff --git a/lib/index.mjs b/lib/index.mjs
 --- a/lib/index.mjs
 +++ b/lib/index.mjs
-@@ -350,7 +350,7 @@ function callerOf(exec) {
+@@ -1,6 +1,6 @@
+ import { z } from "zod";
+ import { basename } from "node:path";
+-import { randomUUID } from "node:crypto";
++import { randomUUID, createHash } from "node:crypto";
+ //#region src/approval.ts
+ /**
+ * Build the write gate for one plugin run.
+@@ -350,7 +350,7 @@
  		agent,
  		cwd,
  		sessionId: agent.session.id,
@@ -10,3 +18,34 @@ diff --git a/lib/index.mjs b/lib/index.mjs
  	};
  }
  function parseArgs(schema, raw, tool) {
+@@ -424,7 +424,7 @@
+ 	]).optional(),
+ 	tags: z.array(z.string()).optional()
+ });
+-const forgetArgs = z.object({ id: z.string().min(1) });
++const forgetArgs = z.object({ id: z.string().min(1), version: z.string().regex(/^[a-f0-9]{64}$/).optional() });
+ const recallArgs = z.object({
+ 	query: z.string().optional(),
+ 	limit: z.number().int().min(1).max(50).optional()
+@@ -609,7 +609,7 @@
+ 					properties: { id: {
+ 						type: "string",
+ 						description: "Fact id to archive"
+-					} },
++					}, version: { type: "string", description: "Optional content hash precondition from legacy_read" } },
+ 					required: ["id"]
+ 				},
+ 				output: TEXT_OUTPUT,
+@@ -619,7 +619,12 @@
+ 					const domain = await openDomain(service);
+ 					const existing = domain.getFact(caller.cwd, args.id);
+ 					if (existing === void 0 || existing.state === "archived") throw new MemoryError("MEMORY_NOT_FOUND", `memory_forget: no active fact '${args.id}' in this workspace`);
++					const revision = () => createHash("sha256").update(JSON.stringify(domain.getFact(caller.cwd, args.id) ?? null)).digest("hex");
++					const expected = args.version ?? revision();
++					if (revision() !== expected) throw new MemoryError("MEMORY_CONFLICT", "memory_forget: fact changed; read it again before deleting");
+ 					await approveWrite(service, exec, caller, "memory_forget", writeReason(`Forget fact ${existing.id} [${existing.kind}]`, caller.cwd, truncate(existing.text, 120)));
++					exec.signal.throwIfAborted();
++					if (revision() !== expected) throw new MemoryError("MEMORY_CONFLICT", "memory_forget: fact changed during approval; nothing was archived");
+ 					if (!await domain.archive(caller.cwd, args.id)) throw new MemoryError("MEMORY_NOT_FOUND", `memory_forget: fact '${args.id}' vanished before the write landed`);
+ 					return `archived fact ${args.id}`;
+ 				}

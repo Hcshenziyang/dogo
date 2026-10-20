@@ -33,13 +33,24 @@ export const memoryInput = z.discriminatedUnion('action', [
   z.object({ action: z.literal('delete'), ...common, id: z.string().uuid(), version }).strict(),
   z.object({ action: z.literal('search'), ...common, query: z.string().max(500).default(''), offset: z.number().int().min(0).default(0), limit: z.number().int().min(1).max(50).default(20) }).strict(),
   z.object({ action: z.literal('contexts'), scope, offset: z.number().int().min(0).default(0), limit: z.number().int().min(1).max(50).default(20) }).strict(),
-  z.object({ action: z.literal('legacy_read'), scope: z.enum(['personal', 'session']), scopeId: scopeId.optional(), query: z.string().min(1).max(500) }).strict(),
+  z.object({ action: z.literal('legacy_read'), scope: z.enum(['personal', 'session']), scopeId: scopeId.optional(),
+    query: z.string().max(500).default(''), id: z.string().uuid().optional(), path: z.string().min(1).max(240).optional(),
+    offset: z.number().int().min(0).default(0), limit: z.number().int().min(1).max(50).default(20) }).strict(),
+  z.object({ action: z.literal('legacy_forget'), scope: z.enum(['personal', 'session']), scopeId: scopeId.optional(),
+    id: z.string().uuid().optional(), path: z.string().min(1).max(240).optional(), version }).strict(),
 ]).superRefine((value, ctx) => {
   if (value.action !== 'contexts') checkScope(value, ctx);
   if (value.action === 'update' && !['text', 'tags', 'related'].some(key => value[key] !== undefined))
     ctx.addIssue({ code: 'custom', message: 'update requires text, tags or related' });
+  if (value.action === 'legacy_read' || value.action === 'legacy_forget') {
+    if (value.scope === 'personal' && value.id !== undefined || value.scope === 'session' && value.path !== undefined)
+      ctx.addIssue({ code: 'custom', message: 'Legacy personal files use path; legacy workspace facts use id' });
+    if (value.action === 'legacy_forget' && !(value.scope === 'personal' ? value.path : value.id))
+      ctx.addIssue({ code: 'custom', message: 'legacy_forget requires an exact path (personal) or id (session)' });
+  }
 });
-const hash = value => createHash('sha256').update(value).digest('hex');
+export const memoryVersion = value => createHash('sha256').update(value).digest('hex');
+const hash = memoryVersion;
 const sameScope = (a, b) => a.scope === b.scope && a.scopeId === b.scopeId;
 export const recordPath = value => `records/${value.scope}/${value.scope === 'personal' ? 'self' : hash(value.scopeId)}/${value.id}.json`;
 export function parseRecord(file, raw) {
@@ -62,7 +73,7 @@ export class ScopedMemory {
   }
   execute(input, origin) {
     const args = memoryInput.parse(input);
-    if (args.action === 'legacy_read') throw new Error('Legacy reads require a live DSH session');
+    if (args.action.startsWith('legacy_')) throw new Error('Legacy operations require the compatibility bridge');
     if (args.action === 'contexts' || args.action === 'search') {
       const { records, errors } = this.entries();
       const selected = records.filter(record => args.action === 'contexts' ? record.scope === args.scope : sameScope(record, args));

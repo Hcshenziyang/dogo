@@ -47,4 +47,11 @@ test('all four scopes sync through the real service, including CAS conflicts and
   await mac.recordAction({ action: 'delete', ...topicSelector, version: topic.version }, origin); await mac.sync(); await phone.sync();
   await assert.rejects(phone.recordAction({ action: 'read', ...topicSelector }), /not found/);
   assert.equal((await phone.recordAction({ action: 'search', scope: 'project', scopeId: 'shared-project' })).total, 1);
+  await mac.action({ op: 'write', args: { path: 'old-personal.md', base: null, content: 'Old duplicate fixture' } });
+  await mac.sync(); await phone.sync();
+  const legacy = (await phone.legacyFiles({ query: '', path: 'old-personal.md', offset: 0, limit: 1 })).files[0];
+  await phone.forgetLegacyFile({ path: legacy.path, version: legacy.version });
+  await phone.sync(); await mac.sync();
+  assert.equal((await mac.action({ op: 'read', args: { path: legacy.path } })).content, null);
+  assert.equal((await mac.recordAction({ action: 'read', ...selector })).record.text, 'mac preference');
 });
