@@ -103,6 +103,7 @@ export class DshBackend {
         { id: 'llm-pi-ai', config: { providers: { 'dogo-local': provider } } },
         ...(settings.model ? [{ id: 'agent-default-model', config: { provider: 'dogo-local', model: settings.model } }] : []),
       ] : []),
+      ...(this.options.hostServices ? [{ id: 'dsh-native-memory', config: { injectProfile: false } }] : []),
       { id: 'web-runtime', config: { openBrowser: false, printUrl: false, surfaceContext: true, trustedHosts: [] } },
       { insert: [
         { id: 'preset-dogo-readonly', name: '@deepseek-ai/dsh-agent-preset', config: {

@@ -3,6 +3,7 @@ import path from 'node:path';
 import { randomUUID } from 'node:crypto';
 import { z } from 'zod';
 import { scan, ensureDirectory, destination, readText, atomicWrite } from '@dogo/sync-client/sync';
+import { parseRecord } from './scoped-memory.mjs';
 
 // Only the dedicated personal folder is reachable. Compare-and-swap protects concurrent Agent edits.
 export class MemoryFiles {
@@ -12,6 +13,7 @@ export class MemoryFiles {
   read(name) { this.prepare(); const file = destination(this.root, name); return existsSync(file) ? readText(file) : null; }
   write(name, content, base) {
     z.string().max(256000).nullable().parse(content);
+    if (name.startsWith('records/') && content !== null) parseRecord(name, content);
     const before = this.read(name);
     if (before !== base) throw new Error('记忆已被其他操作修改；原编辑保留，请重新读取后合并');
     const target = destination(this.root, name);

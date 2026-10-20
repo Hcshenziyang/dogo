@@ -35,6 +35,10 @@ export class PhoneMemoryMaintenance {
       controller.signal.throwIfAborted();
       await this.memory({ op: 'claim', args: { id: candidate.id, executionId } });
       controller.signal.throwIfAborted();
+      if (candidate.path.startsWith('records/')) {
+        await this.memory({ op: 'defer', args: { id: candidate.id, executionId, reason: '结构化记忆发生并发修改；保留双方，避免文本合并破坏归属和来源，请在设置中选择版本' } });
+        return;
+      }
       const input = JSON.stringify({ path: candidate.path, base: candidate.base, local: candidate.local, remote: candidate.remote });
       if (input.length > 100000 || candidate.base == null) throw new Error('冲突超出手机安全分析范围或缺少共同基线，需要人工合并');
       const model = createOpenAICompatible({ name: 'dogo-memory-mobile', baseURL: config.endpoint, fetch: agentFetch(this.transport, 'model', controller.signal) }).chatModel(config.model);

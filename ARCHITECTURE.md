@@ -39,7 +39,7 @@ Electron 直接管理 DSH 子进程；插件挂载业务服务后返回版本、
 
 `DSH → DogO Host 插件 → contracts / sync-client`；`Client 插件 → hub-ui`。生产插件不依赖服务器应用包。桌面进程管理器不再包含业务 Engine。兼容回归夹具仅在插件测试目录中组装旧调用方式。
 
-DSH 自己管理模型、插件、Agent 循环、原生会话及其持久化。DogO 管理跨端 requestId/executionId/nativeId 映射、资料与同步回执，不能另建一套同义 Agent 状态机。个人记忆以专用文件夹为载体，项目记忆不自动参与同步。
+DSH 自己管理模型、插件、Agent 循环、原生会话及其持久化。DogO 管理跨端 requestId/executionId/nativeId 映射、资料与同步回执，不能另建一套同义 Agent 状态机。新记忆通过 `dogo_memory` 显式传 personal/topic/project/session 归属，共用原专用文件夹与同步，默认同步全部 scope 的文字记录；不自动迁移旧工作区记忆或上传项目源码。工具、设置与同步操作同一份记录，详见[记忆协议](docs/scoped-memory.md)。
 
 ## 插件范围和权限
 

@@ -62,7 +62,7 @@ function DogOPanel() {
       </section>
       <MemoryManager key={state ? `${state.relay.url}|${state.relay.device}` : 'local'} scope={state ? `${state.relay.url}|${state.relay.device}` : 'local'} call={memory}
         devices={state?.hub.items.filter((i: any) => i.type === 'device').map((i: any) => ({ id: i.owner, name: i.name })) ?? []} />
-      {hasNative && <button onClick={() => void run(() => native('openMemory'))}>打开个人记忆目录</button>}
+      {hasNative && <button onClick={() => void run(() => native('openMemory'))}>打开记忆目录</button>}
       <section className="hub-card"><h3>历史任务</h3><p>旧任务保留查看；新会话使用 DSH 工作区。</p>{state?.tasks.map((t: any) => <details key={t.id}><summary>{t.title} · {t.status}</summary><pre style={{ whiteSpace: 'pre-wrap' }}>{t.output || t.error}</pre></details>)}</section>
     </>} />
   </div>;

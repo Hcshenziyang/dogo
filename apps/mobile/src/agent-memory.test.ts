@@ -43,3 +43,11 @@ test('backgrounding during configuration prevents a later claim and model reques
   const runner = new PhoneMemoryMaintenance(f.transport, f.storage, f.memory, async () => 'phone');
   const job = runner.run(); runner.stop(); release(); await assert.rejects(job, /abort/i); assert.equal(f.operations.length, 0); assert.equal(f.calls(), 0);
 });
+test('structured memory conflicts preserve both versions without generic model rewriting', async () => {
+  const f = fixture(); f.conflict.path = 'records/personal/self/fixture.json';
+  const runner = new PhoneMemoryMaintenance(f.transport, f.storage, f.memory, async () => 'phone');
+  await runner.run();
+  assert.equal(f.conflict.status, 'needs-human'); assert.equal(f.calls(), 0);
+  assert.equal(f.conflict.local, 'base\nlocal'); assert.equal(f.conflict.remote, 'base\nremote');
+  assert(!f.operations.includes('resolve'));
+});

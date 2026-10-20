@@ -3,6 +3,7 @@ import { useEffect, useState } from 'react';
 export type MemoryCall = (input: { op: string; args?: Record<string, unknown> }) => Promise<any>;
 type Editor = { path: string; content: string; base: string | null; version: number };
 const empty: Editor = { path: 'preferences.md', content: '', base: null, version: 0 };
+const scopeNames: Record<string, string> = { personal: '个人', topic: '主题', project: '项目', session: '会话' };
 
 /** One editor across native folders and the browser's explicit remote-memory view. */
 export function MemoryManager({ call, scope, devices = [] }: { call: MemoryCall; scope: string; devices?: { id: string; name: string }[] }) {
@@ -22,6 +23,7 @@ export function MemoryManager({ call, scope, devices = [] }: { call: MemoryCall;
   const run = async (fn: () => Promise<void>) => { if (busy) return; setBusy(true); setNotice(''); try { await fn(); await refresh(); } catch (e) { setNotice((e as Error).message); } finally { setBusy(false); } };
   const read = async (path: string) => { const r = await call({ op: 'read', args: { path } }); setEditor({ path, content: r.content ?? '', base: r.content, version: r.version ?? 0 }); setVersions([]); setBeforeVersion(null); };
   const dirty = editor.content !== (editor.base ?? '');
+  const record = (() => { try { const value = JSON.parse(editor.content); return editor.path.startsWith('records/') && value?.format === 'dogo-memory-v1' && typeof value.text === 'string' ? value : null; } catch { return null; } })();
   const switchFile = (path: string) => { if (dirty && !confirm('替换当前未保存的编辑草稿？')) return; void run(() => read(path)); };
   const save = async (content: string | null) => {
     await call({ op: 'write', args: { ...editor, content } });
@@ -29,23 +31,30 @@ export function MemoryManager({ call, scope, devices = [] }: { call: MemoryCall;
     if (state.enabled && !state.remote) await call({ op: 'sync' });
     await read(editor.path); setNotice(content === null ? '已删除；同步端会收到删除标记，历史仍可恢复' : '已保存；并发变化会保留为冲突');
   };
-  return <section className="hub-card"><h3>个人记忆</h3><p>{state.remote ? '网页直接读写服务器上的个人记忆。' : '只同步 DogO 专用文件夹。'}项目、聊天和资料箱不自动成为记忆；不要写入密码或 API key。</p>
-    {!state.remote && <label><span><input type="checkbox" style={{ width: 'auto' }} disabled={busy} checked={state.enabled} onChange={e => void run(async () => { await call({ op: 'configure', args: { enabled: e.target.checked } }); })} /> 开启专用目录同步</span></label>}
-    <button disabled={busy || (!state.remote && !state.enabled)} onClick={() => void run(async () => { await call({ op: 'sync' }); setNotice(state.remote ? '已刷新服务器内容' : '同步完成；请留意下方待处理冲突'); })}>{state.remote ? '刷新' : '立即同步'}</button>
+  return <section className="hub-card"><h3>记忆</h3><p>Agent 维护个人偏好与长期意向，以及研究主题、项目和会话的上下文记忆。需要时可在这里查看、纠正或删除。{state.remote ? '当前查看服务器内容。' : '同步包含全部范围的文字记忆。'}原始聊天和附件不会整份自动入库。</p>
+    {!state.remote && typeof state.automatic === 'boolean' && <label><span><input type="checkbox" style={{ width: 'auto' }} disabled={busy} checked={state.automatic} onChange={e => void run(async () => { await call({ op: 'configure', args: { automatic: e.target.checked } }); })} /> Agent 自动维护记忆</span></label>}
+    {!state.remote && <label><span><input type="checkbox" style={{ width: 'auto' }} disabled={busy} checked={state.enabled} onChange={e => void run(async () => { await call({ op: 'configure', args: { enabled: e.target.checked } }); })} /> 同步全部范围的记忆</span></label>}
+    {state.syncing && <p role="status">正在同步记忆…</p>}
+    {state.error && <p role="alert">同步未完成：{state.error}。本机记录仍保留。</p>}
+    {!!state.recordErrors?.length && <p role="alert">有 {state.recordErrors.length} 条记录格式异常，可在下方查看原文或恢复历史。</p>}
+    <button disabled={busy || (!state.remote && !state.enabled)} onClick={() => void run(async () => { const result = await call({ op: 'sync' }); setNotice(state.remote ? '已刷新服务器内容' : result.connected === false ? '本机记忆已保留，连接同步服务后会继续同步' : '同步完成；请留意下方待处理冲突'); })}>{state.remote ? '刷新' : '立即同步'}</button>
     <button disabled={busy} onClick={() => void run(async () => {
       const value = await call({ op: 'export' });
       if (value.files) { const url = URL.createObjectURL(new Blob([JSON.stringify(value, null, 2)], { type: 'application/json' })); const a = document.createElement('a'); a.href = url; a.download = 'dogo-personal-memory.json'; a.click(); setTimeout(() => URL.revokeObjectURL(url), 30000); }
-      setNotice(value.saved === false ? '导出已取消' : '已导出当前个人记忆；导出文件含个人信息，请妥善保管');
+      setNotice(value.saved === false ? '导出已取消' : '已导出当前记忆；导出文件含个人信息，请妥善保管');
     })}>导出当前文件</button>
-    <details><summary>编辑与历史恢复</summary>
-      <label>文件（包含服务器已删除文件）<select disabled={busy} value={files.includes(editor.path) ? editor.path : ''} onChange={e => switchFile(e.target.value)}><option value="" disabled>新文件</option>{files.map(p => <option key={p}>{p}</option>)}</select></label>
-      <label>文件名<input value={editor.path} disabled={busy} onChange={e => { setEditor(v => ({ ...v, path: e.target.value, base: null, version: 0 })); setVersions([]); setBeforeVersion(null); }} /></label>
-      <label>内容<textarea rows={8} maxLength={256000} disabled={busy} value={editor.content} onChange={e => setEditor(v => ({ ...v, content: e.target.value }))} /></label>
+    <details><summary>查看、编辑与历史恢复</summary>
+      <p>个人记忆跨场景使用；主题、项目和会话记忆保留对应事情的上下文。</p>
+      <button disabled={busy} onClick={() => void run(refresh)}>刷新记录</button>
+      <label>记录（包含服务器已删除文件）<select disabled={busy} value={files.includes(editor.path) ? editor.path : ''} onChange={e => switchFile(e.target.value)}><option value="" disabled>新文件</option>{files.map(p => { const item = state.records?.find((r: any) => r.path === p); return <option key={p} value={p}>{item ? `${scopeNames[item.scope] ?? item.scope} · ${item.text}` : p}</option>; })}</select></label>
+      {record ? <p>归属：{scopeNames[record.scope] ?? record.scope}{record.scopeId ? ` · ${record.scopeId}` : ''}</p> : <label>文件名<input value={editor.path} disabled={busy} onChange={e => { setEditor(v => ({ ...v, path: e.target.value, base: null, version: 0 })); setVersions([]); setBeforeVersion(null); }} /></label>}
+      <label>内容<textarea rows={8} maxLength={record ? 32000 : 256000} disabled={busy} value={record?.text ?? editor.content} onChange={e => setEditor(v => ({ ...v, content: record ? JSON.stringify({ ...record, text: e.target.value, updatedAt: new Date().toISOString() }, null, 2) : e.target.value }))} /></label>
+      {record && <details><summary>关联与来源</summary><pre>{JSON.stringify({ related: record.related, source: record.source }, null, 2)}</pre></details>}
       <button disabled={busy} onClick={() => void run(() => save(editor.content))}>保存{state.enabled && !state.remote ? '并同步' : ''}</button>
       <button disabled={busy} onClick={() => switchFile(editor.path)}>重新读取</button>
       <button disabled={busy || editor.base === null} onClick={() => { if (confirm(`删除 ${editor.path}？同步后其他设备也会删除；历史版本保留。`)) void run(() => save(null)); }}>删除</button>
-      <label>重命名为<input disabled={busy} value={target} onChange={e => setTarget(e.target.value)} /></label>
-      <button disabled={busy || !target || dirty} onClick={() => void run(async () => { await call({ op: 'rename', args: { ...editor, target } }); if (state.enabled && !state.remote) await call({ op: 'sync' }); await read(target); setTarget(''); })}>重命名（先保存编辑）</button>
+      {!record && <><label>重命名为<input disabled={busy} value={target} onChange={e => setTarget(e.target.value)} /></label>
+      <button disabled={busy || !target || dirty} onClick={() => void run(async () => { await call({ op: 'rename', args: { ...editor, target } }); if (state.enabled && !state.remote) await call({ op: 'sync' }); await read(target); setTarget(''); })}>重命名（先保存编辑）</button></>}
       <button disabled={busy} onClick={() => void run(async () => { const result = await call({ op: 'versions', args: { path: editor.path } }); setVersions(result.versions); setBeforeVersion(result.nextBefore); })}>查看服务器历史</button>
       {versions.map(v => <details key={v.version}><summary>版本 {v.version} · {new Date(v.updatedAt).toLocaleString()} · {v.content === null ? '删除' : v.updatedBy}</summary><pre>{v.content ?? '删除标记'}</pre>
         <button disabled={busy} onClick={() => { if (confirm('将此历史版本载入编辑器？不会立即覆盖当前文件，确认内容后再点保存。')) setEditor(e => ({ ...e, content: v.content ?? '' })); }}>载入为待保存草稿</button></details>)}
