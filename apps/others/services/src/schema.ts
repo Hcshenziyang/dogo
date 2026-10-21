@@ -27,8 +27,8 @@ export const configSchema = z.object({
     tokenEnv: z.string().regex(/^[A-Z][A-Z0-9_]+$/),
     publishTo: z.array(mailbox).default([]),
     memory: z.boolean().default(false),
-  }).strict()).min(1),
-  mailboxes: z.record(mailbox, id),
+  }).strict()).default([]),
+  mailboxes: z.record(mailbox, id).default({}),
 }).strict().superRefine((config, ctx) => {
   const devices = new Set(config.devices.map(d => d.id));
   if (devices.size !== config.devices.length) ctx.addIssue({ code: 'custom', message: 'Duplicate device ID' });

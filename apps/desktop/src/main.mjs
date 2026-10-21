@@ -86,6 +86,11 @@ else {
       if (!existsSync(installationFile)) writeFileSync(installationFile, JSON.stringify({ id: installationId }), { mode: 0o600, flag: 'wx' });
       const account = new DesktopAccount({ platform: process.platform === 'darwin' ? 'mac' : 'win', installationId,
         read: () => currentCredential, save: saveCredential,
+        readOrigin: () => JSON.parse(readFileSync(installationFile, 'utf8')).url || '',
+        saveOrigin: url => {
+          writeFileSync(installationFile + '.tmp', JSON.stringify({ id: installationId, url }), { mode: 0o600 });
+          renameSync(installationFile + '.tmp', installationFile);
+        },
         clear: () => { rmSync(credentialFile, { force: true }); currentCredential = undefined; },
         connect: pair => rpc('connectRelay', pair), disconnect: () => rpc('disconnectRelay'),
       });
@@ -241,26 +246,6 @@ else {
           }
           return rpc(method, params);
         });
-      ipcMain.handle('dogo:importRelay', async (event) => {
-        trusted(event, true);
-        if (!encryptionReady()) throw new Error('系统安全存储不可用，未保存设备凭据');
-        const expected = process.platform === 'darwin' ? 'mac' : 'win';
-        const provisioned = path.join(app.getPath('home'), '.local/share/dogo/relay', `${expected}.json`);
-        const selected = await dialog.showOpenDialog(window, {
-          title: '导入此电脑的 DogO 设备凭据', properties: ['openFile'],
-          filters: [{ name: 'DogO 设备凭据', extensions: ['json'] }],
-          defaultPath: existsSync(provisioned) ? provisioned : app.getPath('documents'),
-        });
-        if (selected.canceled) return null;
-        const bytes = readFileSync(selected.filePaths[0]);
-        if (bytes.length > 8192) throw new Error('设备凭据文件过大');
-        const pairing = pairingSchema.parse(JSON.parse(bytes.toString('utf8')));
-        if ((pairing.version === 1 ? pairing.device : pairing.platform) !== expected) throw new Error(`请选择 ${expected} 设备凭据`);
-        const state = await rpc('connectRelay', pairing);
-        if (!state.connected) throw new Error(state.error || '设备连接失败，凭据未保存');
-        saveCredential(pairing);
-        return state;
-      });
       ipcMain.handle('dogo:registerProject', async (event) => {
         trusted(event, true);
         const selected = await dialog.showOpenDialog(window, { title: '登记项目文件夹（用于无人值守执行）', buttonLabel: '登记项目', properties: ['openDirectory'] });

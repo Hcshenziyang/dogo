@@ -20,7 +20,8 @@ const service = createService({ port, publicOrigin: origin, database: path.join(
   devices: [{ id: 'mac', tokenEnv: 'DOGO_FIXTURE_MAC', memory: true }], mailboxes: { '/tasks/mac': 'mac' } }, env);
 await service.listen();
 const login = { username: 'fixture-owner', password: 'Synthetic browser fixture 731!', name: 'Fixture Mac', platform: 'mac', installationId: randomUUID() };
-const owner = await service.account.setup(login, service.account.authenticate(env.DOGO_FIXTURE_MAC), 'fixture');
+await service.account.provision({ username: login.username, password: login.password });
+const owner = await service.account.login(login, 'fixture', false, service.account.authenticate(env.DOGO_FIXTURE_MAC));
 const principal = service.account.authenticate(owner.token);
 // Auto-grants only this disposable fixture's newly logged-in browser, never production devices.
 const grants = setInterval(() => {

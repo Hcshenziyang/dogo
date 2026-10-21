@@ -99,7 +99,7 @@ export class HubSession {
   async send(op: 'create' | 'send' | 'note' | 'stop' | 'answer' | 'noteState', args: Record<string, unknown>) {
     await this.load();
     const status = await this.transport.status();
-    if (!status.configured) throw new Error('请先在设置登录账号或导入已有配对文件');
+    if (!status.configured) throw new Error('请先在设置中登录个人账号');
     if (status.url !== this.state.origin || status.device !== this.state.device) throw new Error('服务或设备已变化，请先刷新并核对目标');
     const requestId = crypto.randomUUID();
     const input = ['create', 'send', 'note'].includes(op) ? { ...args, requestId,

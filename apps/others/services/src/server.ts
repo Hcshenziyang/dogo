@@ -98,6 +98,7 @@ export function createService(input: unknown, env: NodeJS.ProcessEnv = process.e
       const path = url.pathname;
       if (publicOrigin && config.webRoot && await serveWeb(config.webRoot, path, method, res)) return;
       if (path === '/v3/auth/status' && method === 'GET') return json(res, 200, account.status());
+      if (['/v3/auth/setup', '/v3/auth/register'].includes(path)) return json(res, 403, { error: 'Public registration is disabled. Accounts are provisioned by the server administrator.' });
       if (path === '/v3/auth/login' && method === 'POST') {
         let migration: Principal | undefined;
         if (req.headers.authorization) {
@@ -111,7 +112,6 @@ export function createService(input: unknown, env: NodeJS.ProcessEnv = process.e
       if (path === '/v3/auth/recover' && method === 'POST') return json(res, 200, await account.reset(await body(req), req.socket.remoteAddress ?? 'unknown'));
       const user = principal(req), device = user.device;
       if (path.startsWith('/v3/auth/')) {
-        if (path === '/v3/auth/setup' && method === 'POST') return json(res, 200, await account.setup(await body(req), user, req.socket.remoteAddress ?? 'unknown'));
         if (path === '/v3/auth/me' && method === 'GET') return json(res, 200, account.status(user));
         if (path === '/v3/auth/devices' && method === 'GET') return json(res, 200, account.devices(user));
         if (path === '/v3/auth/device' && method === 'POST') return json(res, 200, account.updateDevice(user, await body(req)));

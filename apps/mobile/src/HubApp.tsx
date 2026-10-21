@@ -19,8 +19,7 @@ export function HubApp() {
   return <HubView client={hub} registerBack={registerBack} onBack={() => setLegacy(true)} assistant={native ? <AgentView /> : undefined} settings={<>
     {native && <AgentSettings />}
     {(native || webClient) && <AccountSettings call={accountCall} changed={() => hub.refresh()} web={!!webClient} />}
-    <section className="hub-card"><h3>个人设备连接</h3><p>{hubState.origin || '尚未连接'}<br />{native ? '配对凭据只保存在 Android 系统安全存储，不交给模型或网页。' : '网页登录使用当前站点的安全 Cookie，不导入设备配对文件。'}</p>
-      <button className="hub-primary" disabled={!native} onClick={async () => { try { await HubRelay.importPairing(); await hub.refresh(); setNotice('配对已保存，开始同步'); } catch (e) { setNotice((e as Error).message); } }}>导入手机配对文件</button>
+    <section className="hub-card"><h3>个人设备连接</h3><p>{hubState.origin || '尚未连接'}<br />{native ? '登录个人账号后自动连接此设备。' : '网页登录后自动连接此设备。'}</p>
       {notice && <p role="status">{notice}</p>}{!native && <p>{webClient ? '网页登录后可发送任务、接续原设备会话和投递资料。' : '这是浏览器开发预览；正式网页与服务同源部署。'}</p>}
     </section>
     {native && <section className="hub-card"><h3>后台消息通知</h3><p>通过原生连接接收完成、失败、待确认和记忆冲突通知；开启时通知栏会保留连接提示。系统强制停止或省电限制可能中断连接，重新打开会补读。</p>

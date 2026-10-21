@@ -31,7 +31,7 @@ export class RelaySession {
       const task = snapshot.localTasks.find(item => item.id === id);
       if (!task || task.status !== 'outbox') throw new Error('任务不在真实待发送列表');
       const status = await this.native.status();
-      if (!status.configured || status.device !== 'phone') throw new Error('请先在设置中导入手机设备凭据');
+      if (!status.configured || status.device !== 'phone') throw new Error('请先在账号设置中登录，并使用跨端任务页面');
       if (task.relayOrigin && task.relayOrigin !== status.url) throw new Error('此任务已尝试发往原服务，请恢复原服务后重试');
       const input = toPublishInput(task);
       // Persist the destination before sending: a lost HTTP response must never allow local retraction or cross-server retry.

@@ -24,7 +24,7 @@ export class Relay {
   }
   async request(path, body) {
     const key = this.key;
-    if (!key) throw new Error('尚未导入设备凭据');
+    if (!key) throw new Error('尚未登录个人账号');
     const res = await this.fetcher(key.url + path, {
       method: body === undefined ? 'GET' : 'POST', redirect: 'error', signal: AbortSignal.timeout(10000),
       headers: { Authorization: `Bearer ${key.token}`, ...(body === undefined ? {} : { 'Content-Type': 'application/json' }) },

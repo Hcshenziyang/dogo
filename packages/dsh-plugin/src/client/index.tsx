@@ -71,7 +71,7 @@ function DesktopSettings({ state, scope, client, hasNative, run }: any) {
     {page === 'account' && (hasNative ? <AccountSettings call={account} changed={() => client.refresh()} /> : <p>请在 DogO 桌面客户端中管理账号与设备授权。</p>)}
     {page === 'connection' && <section className="hub-card"><h3>{state?.relay.connected ? '跨端已连接' : '跨端未连接'}</h3><p className="hub-muted">本机对话不依赖跨端连接。</p>
       <button onClick={() => void run(() => call('refreshRelay'))}>刷新连接</button>
-      {hasNative && <><button onClick={() => void run(() => native('importRelay'))}>导入设备凭据</button>
+      {hasNative && <><p className="hub-muted">在账号与设备中登录，连接会自动建立。</p>
         <label><input type="checkbox" checked={state?.hub.policy.autoExecute ?? false} onChange={e => void run(() => native('remotePolicy', { autoExecute: e.target.checked }))} />允许已授权设备自动执行</label>
         <details><summary>连接诊断</summary><button onClick={() => void run(() => native('prepare'))}>运行检查</button>{state?.readiness?.checks.map((c: any) => <p key={c.id}>{c.ok ? '✓' : '待处理'} · {c.message}</p>)}</details></>}
       {state?.hub.error && <p role="alert">{state.hub.error}</p>}

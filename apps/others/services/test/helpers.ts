@@ -38,3 +38,9 @@ export async function fixture(t: TestContext) {
 }
 
 export const taskInput = { requestId: 'phone-task-1', mailbox: '/tasks/mac', title: 'Read code', instructions: 'Inspect only; return findings.' };
+
+/** Synthetic owner provisioning is local administration, followed by ordinary login. */
+export async function provisionLogin(account: import('../src/auth.ts').AccountService, data: any, migration?: import('../src/auth.ts').Principal) {
+  const { recoveryCode } = await account.provision({ username: data.username, password: data.password });
+  return { ...await account.login(data, 'fixture-owner', false, migration), recoveryCode };
+}

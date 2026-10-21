@@ -1041,7 +1041,7 @@ export function App() {
                   <span>
                     <strong>任务服务连接</strong>
                     <small>
-                      {relayState.url || workspace.connection.url || "导入手机设备凭据以连接"}
+                      {relayState.url || workspace.connection.url || "登录个人账号以连接"}
                     </small>
                   </span>
                   <ChevronRight size={17} />
@@ -1357,11 +1357,10 @@ export function App() {
       {sheet === "connection" && (
         <Sheet title="任务服务连接" onClose={() => setSheet(null)}>
           <p className="sheet-subtitle">
-            导入 phone.json 配对此手机。凭据由 Android Keystore 加密保存，不进入网页或 APK；任务需逐条确认发送，结果在前台自动刷新。
+            在账号设置中登录个人账号即可连接此手机。发送任务后，结果会在前台自动刷新。
           </p>
-          <button className="primary full" disabled={!native || demo || networkBusy} onClick={() => void importPairing()}>导入手机设备凭据</button>
           <button className="secondary full" disabled={!relayState.configured || networkBusy || demo} onClick={() => void networkAction(() => relay.refresh())}>检查连接并刷新结果</button>
-          <p className="footnote">{relayState.configured ? `已绑定：${relayState.url} · phone` : '尚未配对。浏览器预览不会接收长期令牌。'}</p>
+          <p className="footnote">{relayState.configured ? `已绑定：${relayState.url} · phone` : '尚未登录，请前往账号设置。'}</p>
           {relayError && <p role="alert" className="form-error">{relayError}</p>}
           <form onSubmit={saveConnection}>
             {storageError && (
@@ -1456,7 +1455,7 @@ export function App() {
             </p>
             <h3>权限与隐私</h3>
             <p>
-              不内置账号或令牌，不采集统计追踪，不申请通讯录、定位、屏幕或通知权限。导入凭据只读取你通过系统文件选择器选中的文件，令牌由 Android Keystore 加密保存。
+              不内置账号或令牌，不采集统计追踪，不申请通讯录、定位、屏幕或通知权限。登录状态由 Android 系统安全存储保管。
             </p>
           </div>
         </Sheet>

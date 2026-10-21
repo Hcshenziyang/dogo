@@ -4,7 +4,7 @@ import { randomUUID } from 'node:crypto';
 import { mkdirSync, writeFileSync, symlinkSync, rmSync } from 'node:fs';
 import { join } from 'node:path';
 import { createService } from '../src/server.ts';
-import { config, env, temp } from './helpers.ts';
+import { config, env, temp, provisionLogin } from './helpers.ts';
 import { BrowserHub } from '../../../../packages/hub-ui/src/browser.ts';
 
 test('default browser transport preserves the native fetch receiver', async t => {
@@ -20,7 +20,7 @@ test('real browser transport uses cookie and CSRF; all account and Hub flows kee
   const service = createService({ ...config(), publicOrigin: 'https://fixture.test' }, env);
   const local = await service.listen(); t.after(() => service.close());
   const credentials = { username: 'fixture-owner', password: 'Synthetic password only 731!', name: 'Fixture Web' };
-  const owner = await service.account.setup({ ...credentials, platform: 'mac', installationId: randomUUID() }, service.account.authenticate(env.DOGO_MAC_TOKEN), 'setup');
+  const owner = await provisionLogin(service.account, { ...credentials, platform: 'mac', installationId: randomUUID() }, service.account.authenticate(env.DOGO_MAC_TOKEN));
   const values = new Map<string, string>(); let cookie = '';
   const browser = new BrowserHub('https://fixture.test', { getItem: k => values.get(k) ?? null, setItem: (k, v) => { values.set(k, v); }, removeItem: k => { values.delete(k); } }, async (url, options) => {
     const headers = new Headers(options?.headers);

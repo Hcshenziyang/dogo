@@ -34,7 +34,7 @@ export const HubRelay = registerPlugin<NativeRelayTransport & HubTransport & {
   notificationStatus(): Promise<{ enabled: boolean; active: boolean; permission: boolean }>;
   notifications(value: { enabled: boolean }): Promise<{ enabled: boolean; active: boolean; permission: boolean }>;
 }>('DogoRelay');
-const unavailable = async (): Promise<never> => { throw new Error('请在 Android APK 中导入设备凭据；网页预览不连接真实服务'); };
+const unavailable = async (): Promise<never> => { throw new Error('请在 Android App 中登录账号；网页预览不连接真实服务'); };
 export const relay = new RelaySession(repository, native ? NativeRelay : {
   status: async () => ({ configured: false, url: '', device: '' }),
   importPairing: unavailable, identity: unavailable, publish: unavailable, read: unavailable,

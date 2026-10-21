@@ -103,7 +103,7 @@ export class AccountService {
   }
   status(principal?: Principal) {
     const user = this.user();
-    return { initialized: !!user, authenticated: !!principal?.session, legacy: !!principal?.legacy,
+    return { initialized: !!user, registrationEnabled: false, authenticated: !!principal?.session, legacy: !!principal?.legacy,
       username: principal?.session ? user?.username : undefined, device: principal?.device.id,
       csrf: principal?.session?.browser ? principal.session.csrf : undefined, expiresAt: principal?.session?.expires_at };
   }
@@ -137,20 +137,19 @@ export class AccountService {
     this.syncPermissions(); this.audit(id, 'device.register');
     return id;
   }
-  async setup(value: unknown, migration: Principal, address: string) {
-    if (this.user()) throw new ServiceError(409, 'Account already initialized');
-    if (!migration.legacy || !['mac', 'win'].includes(this.row(migration.device.id)?.platform ?? ''))
-      throw new ServiceError(403, 'Initialize from an already paired desktop');
-    const input = loginSchema.parse(value); password.parse(input.password); this.throttle(`setup:${address}`);
+  /** Local administration only. Never exposed through an HTTP registration endpoint. */
+  async provision(value: unknown) {
+    const input = z.object({ username, password: z.string().min(8).max(128) }).strict().parse(value);
+    if (this.user()) throw new ServiceError(409, 'Account already initialized; refusing to replace it');
     if (this.deriving) throw new ServiceError(429, 'Account initialization in progress');
     this.deriving = true;
     try {
       const salt = secret(), key = await derive(input.password, salt), recovery = secret();
       return this.store.transaction(() => {
-        if (this.user()) throw new ServiceError(409, 'Account already initialized');
+        if (this.user()) throw new ServiceError(409, 'Account already initialized; refusing to replace it');
         this.store.db.prepare('INSERT INTO account_user VALUES(1,?,?,?,?,?)').run(input.username, salt, key.toString('hex'), hash(recovery), this.store.now());
-        const device = this.enroll(input, migration);
-        return { ...this.issue(device, false), recoveryCode: recovery };
+        this.audit(null, 'account.provisioned');
+        return { username: input.username, recoveryCode: recovery };
       });
     } finally { this.deriving = false; }
   }

@@ -90,7 +90,7 @@ final class RelayTransport {
     }
     /** Never returns a session token or persists a password. Serialized by the plugin executor. */
     JSONObject account(String op, String target, JSONObject args) throws Exception {
-        if (!java.util.Arrays.asList("status", "login", "setup", "recover", "devices", "device", "revoke", "password", "logout", "disable-legacy").contains(op)) throw new IOException("账号操作无效");
+        if (!java.util.Arrays.asList("status", "login", "recover", "devices", "device", "revoke", "password", "logout", "disable-legacy").contains(op)) throw new IOException("账号操作无效");
         if (args.toString().length() > 32768) throw new IOException("账号输入过大");
         JSONObject current = null;
         if (storage.getBaseFile().exists()) current = load();
@@ -107,7 +107,6 @@ final class RelayTransport {
             }
             return result.put("configured", current != null).put("canSetup", false).put("url", origin);
         }
-        if ("setup".equals(op)) throw new IOException("账号请先在已配对电脑上创建");
         if ("login".equals(op)) {
             String installation = accountPreferences.getString("installation", null);
             if (installation == null) {
