@@ -1,5 +1,11 @@
 # 当前状态
 
+## macOS 专属图标（2026-10-21）
+
+- 用户选定第 5 号方案：奶油白圆角底、墨绿 D 与小狗侧脸，独立透明 PNG 源图保存在 `apps/desktop/assets/icon.png`。
+- 原 Mac 打包脚本沿用 Electron 默认图标；现使用系统 sips/iconutil 生成标准及 Retina 图标，写入 `Resources/DogO.icns` 并设置 `CFBundleIconFile`，图标纳入原签名流程。构建方式见 [图标说明](apps/desktop/assets/README.md)。
+- Linux 环境已检查图像尺寸与透明通道、脚本语法、工程布局及 diff；未在 Mac 执行 sips/iconutil、签名或安装，Finder/Dock 实际效果待本机重新打包安装验证。
+
 ## 旧记忆清理兼容补齐（2026-10-20）
 
 - 用户反馈新记录已整理，但重复旧记录因接口只读而遗留。统一入口 `dogo_memory` 增加 `legacy_forget`：旧个人文件按完整内容版本删除，旧工作区 fact 按精确 ID/版本调用原插件归档；不自动迁移、重分类或批量清空。

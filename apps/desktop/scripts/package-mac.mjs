@@ -20,6 +20,17 @@ const target = path.join(root, 'apps/desktop/release', `DogO-${appVersion}-${Dat
 await mkdir(path.dirname(target), { recursive: true });
 await cp(path.resolve(electron, '../../..'), target, { recursive: true, verbatimSymlinks: true });
 const contents = path.join(target, 'Contents');
+// Build every standard/Retina representation from the selected DogO artwork.
+const iconset = path.join(runtime, 'DogO.iconset');
+await mkdir(iconset);
+for (const size of [16, 32, 128, 256, 512]) {
+  for (const scale of [1, 2]) {
+    const pixels = String(size * scale);
+    run('/usr/bin/sips', ['-z', pixels, pixels, path.join(root, 'apps/desktop/assets/icon.png'), '--out',
+      path.join(iconset, `icon_${size}x${size}${scale === 2 ? '@2x' : ''}.png`)]);
+  }
+}
+run('/usr/bin/iconutil', ['-c', 'icns', iconset, '-o', path.join(contents, 'Resources/DogO.icns')]);
 const appRoot = path.join(contents, 'Resources/app');
 await mkdir(path.join(contents, 'Resources/native'), { recursive: true });
 run('xcrun', ['swiftc', '-parse-as-library', '-O', path.join(root, 'apps/desktop/native/Computer.swift'), '-o', path.join(contents, 'Resources/native/dogo-computer')]);
@@ -51,7 +62,7 @@ await rename(path.join(contents, 'Resources', `node-v${version}-darwin-arm64`), 
 run(path.join(contents, 'Resources/node/bin/node'), ['--input-type=module', '-e', 'await import("./apps/desktop/src/host/client.mjs")'], appRoot);
 const plist = path.join(contents, 'Info.plist');
 await rename(path.join(contents, 'MacOS/Electron'), path.join(contents, 'MacOS/DogO'));
-for (const [key, value] of Object.entries({ CFBundleExecutable: 'DogO', CFBundleIdentifier: 'app.dogo.desktop', CFBundleName: 'DogO', CFBundleDisplayName: 'DogO', CFBundleShortVersionString: appVersion, CFBundleVersion: '5' }))
+for (const [key, value] of Object.entries({ CFBundleExecutable: 'DogO', CFBundleIdentifier: 'app.dogo.desktop', CFBundleName: 'DogO', CFBundleDisplayName: 'DogO', CFBundleIconFile: 'DogO.icns', CFBundleShortVersionString: appVersion, CFBundleVersion: '5' }))
   run('/usr/libexec/PlistBuddy', ['-c', `Set :${key} ${value}`, plist]);
 run('/usr/bin/codesign', ['--force', '--deep', '--sign', '-', target]);
 run('/usr/bin/codesign', ['--verify', '--deep', '--strict', target]);
