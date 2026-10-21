@@ -7,17 +7,21 @@ import './style.css';
 const time = (value?: number | null) => value ? new Date(value).toLocaleString('zh-CN', { month: 'numeric', day: 'numeric', hour: '2-digit', minute: '2-digit' }) : '尚未同步';
 const labels: Record<string, string> = { queued: '等待设备执行', running: '正在执行', succeeded: '已完成', failed: '执行失败', interrupted: '执行中断 · 未重跑', cancelled: '已停止', saved: '服务器已保存', received: '电脑已接收', read: '已读', processed: '已处理', archived: '已归档', idle: '可继续', waiting: '等待你回复', unavailable: '原会话不可用' };
 
-export function HubView({ client, settings, assistant, onBack, desktop = false, registerBack, initialTab = 'tasks', embedded = false, onSettings }: {
+export function HubView({ client, settings, assistant, onBack, desktop = false, registerBack, initialTab = 'tasks', embedded = false, onSettings, localIdentity, openNativeSession, openNativeConversation }: {
   client: HubSession; settings?: ReactNode; assistant?: ReactNode; onBack?: () => void; desktop?: boolean;
+  openNativeConversation?: () => void;
+  localIdentity?: { device?: string; instance?: string }; openNativeSession?: (id: string) => void;
   initialTab?: 'tasks' | 'inbox' | 'settings'; embedded?: boolean; onSettings?: () => void;
   registerBack?: (handler: () => void) => Promise<{ remove(): Promise<void> }>;
 }) {
   const state = useSyncExternalStore(client.subscribe, client.snapshot);
   const [tab, setTab] = useState<'tasks' | 'inbox' | 'settings' | 'assistant'>(initialTab);
+  const isLocal = (item: HubItem) => !!(desktop && localIdentity?.device && localIdentity?.instance && item.owner === localIdentity.device && item.instance === localIdentity.instance);
   const [selected, setSelected] = useState<string>();
   const [compose, setCompose] = useState(false);
   const [error, setError] = useState('');
   const [sending, setSending] = useState(false);
+  const [localSubmitted, setLocalSubmitted] = useState(false);
   const attachments = state.draft.attachments ?? [];
   const followup = selected ? state.replies[selected] ?? '' : '';
   const replyFiles = selected ? state.replyFiles[selected] ?? [] : [];
@@ -40,7 +44,7 @@ export function HubView({ client, settings, assistant, onBack, desktop = false, 
     void client.history(selected).catch(e => setError(e.message));
   }, [client, selected, state.syncedAt]);
   const item = state.items.find(i => i.id === selected);
-  const sessions = state.items.filter(i => i.type === 'session' && (i.title ?? '').toLowerCase().includes(query.toLowerCase())).sort((a, b) => b.updatedAt - a.updatedAt);
+  const sessions = state.items.filter(i => i.type === 'session' && !isLocal(i) && (i.title ?? '').toLowerCase().includes(query.toLowerCase())).sort((a, b) => b.updatedAt - a.updatedAt);
   const notes = state.items.filter(i => i.type === 'note' && `${i.title} ${i.text}`.toLowerCase().includes(query.toLowerCase())).sort((a, b) => b.updatedAt - a.updatedAt);
   const devices = state.items.filter(i => i.type === 'device');
   const projects = state.items.filter(i => i.type === 'project' && i.owner === state.draft.target);
@@ -48,7 +52,14 @@ export function HubView({ client, settings, assistant, onBack, desktop = false, 
   const commands = state.items.filter(i => i.type === 'command' && i.sessionId === selected).sort((a, b) => (a.createdAt ?? 0) - (b.createdAt ?? 0));
   const action = async (fn: () => Promise<unknown>) => { if (sending) return; setSending(true); setError(''); try { await fn(); } catch (e) { setError((e as Error).message); } finally { setSending(false); } };
   const draft = (patch: Partial<typeof state.draft>) => void client.draft(patch).catch(e => setError(e.message));
-  const open = (id: string) => { setSelected(id); setError('');
+  const open = (id: string) => {
+    const session = state.items.find(i => i.id === id && i.type === 'session');
+    if (session && isLocal(session)) {
+      if (!session.nativeId || !openNativeSession) { setError('原会话暂时无法打开，请从 DSH 会话列表查找。'); return; }
+      try { openNativeSession(session.nativeId); } catch (e) { setError((e as Error).message); }
+      return;
+    }
+    setSelected(id); setError('');
     const note = state.items.find(i => i.type === 'note' && i.id === id);
     if (note && ['saved', 'received'].includes(note.state ?? '')) void client.send('noteState', { id, state: 'read' }).catch(e => setError(e.message));
   };
@@ -57,6 +68,7 @@ export function HubView({ client, settings, assistant, onBack, desktop = false, 
     await client.send(state.draft.kind === 'note' ? 'note' : 'create', { target: state.draft.target, projectId: state.draft.projectId || null,
       title: state.draft.title.trim() || state.draft.text.slice(0, 60), attachments, artifactIds: state.draft.artifactIds ?? [],
       ...(state.draft.kind === 'note' ? { text: state.draft.text } : { prompt: state.draft.text, ...(state.draft.sourceNoteId ? { sourceNoteId: state.draft.sourceNoteId } : {}) }) });
+    setLocalSubmitted(!!(desktop && state.draft.kind === 'task' && localIdentity?.device === state.draft.target));
     await client.draft({ title: '', text: '', attachments: [], artifactIds: [], sourceNoteId: undefined }); setCompose(false);
   });
   const attach = async (files: FileList | null, reply = false) => {
@@ -72,12 +84,14 @@ export function HubView({ client, settings, assistant, onBack, desktop = false, 
     } catch (e) { setError((e as Error).message); }
   };
   return <div className={`hub-shell ${desktop ? 'hub-desktop' : ''}`}>
-    <header className="hub-header">{!embedded ? <div className="hub-logo">D<span>ogO</span><small>狗蛋 · 随时接着做</small></div> : <span>跨设备{initialTab === 'inbox' ? '资料箱' : initialTab === 'settings' ? '设置' : '回执'} · {state.configured ? '已配对' : '未配对'}</span>}
+    <header className="hub-header">{!embedded ? <div className="hub-logo">D<span>ogO</span>{!desktop && <small>狗蛋 · 随时接着做</small>}</div> : <span>跨设备{initialTab === 'inbox' ? '资料箱' : initialTab === 'settings' ? '设置' : '回执'} · {state.configured ? '已配对' : '未配对'}</span>}
+      {desktop && openNativeConversation && <button className="hub-text" onClick={openNativeConversation}>本机对话 ↗</button>}
       <button aria-label="刷新" onClick={() => void client.refresh()} disabled={state.busy}><RefreshCw size={19} className={state.busy ? 'hub-spin' : ''} /></button></header>
     <main className="hub-main">
+      {localSubmitted && !compose && <div className="hub-card" role="status"><p>已提交到本机任务队列。执行后在 DSH 会话中查看和继续；尚未送达的请求会保留在待发送列表。</p><button onClick={openNativeConversation}>打开本机对话</button><button onClick={() => setLocalSubmitted(false)}>关闭提示</button></div>}
       {(error || state.error) && <div className="hub-alert" role="alert">{error || state.error}<button onClick={() => void client.refresh()}>重试</button></div>}
-      {!state.configured && (!embedded || tab !== 'settings') && <div className="hub-card"><h2>连接你的设备</h2><p>在设置中登录个人账号。任务由原设备执行，记录只进入资料箱。</p><button className="hub-primary" onClick={() => onSettings ? onSettings() : setTab('settings')}>打开设置</button></div>}
-      {compose ? <section className="hub-card hub-compose"><button className="hub-text" onClick={() => setCompose(false)}><ArrowLeft size={17} /> 返回</button><h1>发送到你的电脑</h1>
+      {!state.configured && tab !== 'settings' && <div className="hub-card"><h2>连接你的设备</h2><p>在设置中登录个人账号。任务由原设备执行，记录只进入资料箱。</p><button className="hub-primary" onClick={() => onSettings ? onSettings() : setTab('settings')}>打开设置</button></div>}
+      {compose ? <section className="hub-card hub-compose"><button className="hub-text" onClick={() => setCompose(false)}><ArrowLeft size={17} /> 返回</button><h1>{desktop ? '发送到设备' : '发送到你的电脑'}</h1>
         <div className="hub-segment"><button className={state.draft.kind === 'task' ? 'active' : ''} onClick={() => draft({ kind: 'task' })}>执行任务</button><button className={state.draft.kind === 'note' ? 'active' : ''} onClick={() => draft({ kind: 'note' })}>存入资料箱</button></div>
         <p>{state.draft.kind === 'task' ? '发送后按电脑的预授权自动执行，无需电脑端再次点击。' : '只保存内容，不调用 Agent，也不写入项目文件。'}</p>
         <label>设备<select value={state.draft.target} onChange={e => draft({ target: e.target.value, projectId: '' })}>{devices.length ? devices.map(d => <option value={d.owner} key={d.id}>{d.name} · {d.online ? '在线' : '离线，服务器暂存'}</option>) : <option value="mac">Mac · 等待连接</option>}</select></label>
@@ -104,17 +118,17 @@ export function HubView({ client, settings, assistant, onBack, desktop = false, 
           {item.readOnly ? <p className="hub-muted">这是保留的只读测试会话，不能在手机扩大权限；可新建正常会话。</p> : <form className="hub-reply" onSubmit={e => { e.preventDefault(); void action(async () => { if (!followup.trim()) return; await client.send('send', { sessionId: item.id, prompt: followup, attachments: replyFiles }); setFollowup(''); await client.replyAttachments(item.id, []); }); }}><textarea aria-label="继续原会话" value={followup} onChange={e => setFollowup(e.target.value)} placeholder="继续这项任务，仍由原设备处理…" maxLength={64000} rows={3} /><label className="hub-file">续聊附件<input type="file" multiple onChange={e => void attach(e.target.files, true)} /></label>{replyFiles.map((a, index) => <p key={index}>{a.name}<button type="button" onClick={() => void client.replyAttachments(item.id, replyFiles.filter((_, n) => n !== index))}>移除</button></p>)}<button className="hub-primary" disabled={sending || !followup.trim()}><Send size={17} />发送</button></form>}
           <details className="hub-identity"><summary>原会话标识</summary><p>设备：{item.owner}<br />DSH：{item.nativeId}<br />实例：{item.instance}</p></details>
         </>}
-      </section> : tab === 'assistant' ? assistant : tab === 'settings' ? <section><h1>设置</h1><p className="hub-muted">连接、通知与同步放在这里。</p>{settings}<div className="hub-card"><h3>设备与项目</h3>{devices.map(d => <details key={d.id}><summary>{d.name} · {d.online ? '在线' : '离线'} · {d.ready ? 'DSH 就绪' : '执行器未就绪'}{d.autoExecute === false ? ' · 接单暂停' : ''}</summary>{d.readiness?.checks.map(c => <p key={c.id}>{c.ok ? '✓' : '待处理'} · {c.message}</p>)}<small>准备检查 {time(d.readiness?.at)}</small></details>)}{state.items.filter(i => i.type === 'project').map(p => <p key={p.id}>{p.name} · {p.owner} · {p.available ? '可用' : '不可用'}</p>)}<p>刷新 {time(state.syncedAt)}</p></div>{onBack && <button onClick={onBack}>旧版任务与演示记录</button>}</section>
-      : <section><div className="hub-heading"><div><h1>{tab === 'tasks' ? '接着上次的事。' : '先记下来。'}</h1><p>{tab === 'tasks' ? '电脑负责执行，你随时回来看看。' : '你的资料箱，不会自动触发任务。'}</p></div><button className="hub-primary" aria-label="新建" onClick={() => { draft({ kind: tab === 'tasks' ? 'task' : 'note' }); setCompose(true); }}><Plus size={20} /></button></div>
+      </section> : tab === 'assistant' ? assistant : tab === 'settings' ? <section><h1>设置</h1><p className="hub-muted">{desktop ? '管理你的 DogO。' : '连接、通知与同步放在这里。'}</p>{settings}{!desktop && <div className="hub-card"><h3>设备与项目</h3>{devices.map(d => <details key={d.id}><summary>{d.name} · {d.online ? '在线' : '离线'} · {d.ready ? 'DSH 就绪' : '执行器未就绪'}{d.autoExecute === false ? ' · 接单暂停' : ''}</summary>{d.readiness?.checks.map(c => <p key={c.id}>{c.ok ? '✓' : '待处理'} · {c.message}</p>)}<small>准备检查 {time(d.readiness?.at)}</small></details>)}{state.items.filter(i => i.type === 'project').map(p => <p key={p.id}>{p.name} · {p.owner} · {p.available ? '可用' : '不可用'}</p>)}<p>刷新 {time(state.syncedAt)}</p></div>}{onBack && <button onClick={onBack}>旧版任务与演示记录</button>}</section>
+      : <section><div className="hub-heading"><div><h1>{tab === 'tasks' ? (desktop ? '跨端任务' : '接着上次的事。') : (desktop ? '资料箱' : '先记下来。')}</h1><p>{tab === 'tasks' ? (desktop ? '查看其他设备上的任务。本机对话请使用侧栏中的 DSH 会话。' : '电脑负责执行，你随时回来看看。') : '保存文字与附件，需要时再交给助理。'}</p></div><button className="hub-primary" aria-label="新建" onClick={() => { draft({ kind: tab === 'tasks' ? 'task' : 'note' }); setCompose(true); }}><Plus size={20} /></button></div>
         {pending.length > 0 && <button className="hub-alert" onClick={() => open(pending[0].sessionId!)}>{pending.length} 项需要你回复 →</button>}
         {state.outbox.map(p => <div className="hub-card" key={p.id}><strong>待发送／等待确认</strong><p>{String(p.args.title ?? p.args.prompt ?? '操作请求').slice(0, 200)}</p><small>{p.error || '保留在本机，联网后按原请求编号重试'}</small></div>)}
         <input className="hub-search" aria-label="搜索" placeholder={tab === 'tasks' ? '搜索会话' : '搜索资料'} value={query} onChange={e => setQuery(e.target.value)} />
         {(tab === 'tasks' ? sessions : notes).map(row => { const command = state.items.filter(i => i.type === 'command' && i.sessionId === row.id).sort((a, b) => (b.createdAt ?? 0) - (a.createdAt ?? 0))[0]; return <button className="hub-list-item" key={row.id} onClick={() => open(row.id)}><span className="hub-item-icon">{tab === 'tasks' ? <MessageSquare size={20} /> : <Inbox size={20} />}</span><span><strong>{row.title}</strong><small>{row.owner} · {labels[command?.status ?? row.state ?? ''] || '已同步'} · {time(row.updatedAt)}</small></span><span>›</span></button>; })}
-        {!(tab === 'tasks' ? sessions : notes).length && <div className="hub-empty"><Inbox size={36} /><h3>{tab === 'tasks' ? '还没有会话' : '资料箱是空的'}</h3><p>{tab === 'tasks' ? '发送第一个任务，或刷新电脑上的 DSH 会话。' : '文字和附件都可以先存到这里。'}</p></div>}
+        {!(tab === 'tasks' ? sessions : notes).length && <div className="hub-empty"><Inbox size={36} /><h3>{tab === 'tasks' ? (desktop ? '暂无其他设备的任务' : '还没有会话') : '资料箱是空的'}</h3><p>{tab === 'tasks' ? (desktop ? '本机任务直接在 DSH 会话中查看和继续。' : '发送第一个任务，或刷新电脑上的 DSH 会话。') : '文字和附件都可以先存到这里。'}</p></div>}
         <p className="hub-muted">同步 {time(state.syncedAt)} · 离线时显示已保存内容</p>
       </section>}
     </main>
-    {!embedded && !compose && !selected && <nav className="hub-nav">{assistant && <button className={tab === 'assistant' ? 'active' : ''} onClick={() => setTab('assistant')}><MessageSquare size={20} />对话</button>}{([{ id: 'tasks', label: '任务', Icon: MessageSquare }, { id: 'inbox', label: '资料箱', Icon: Inbox }, { id: 'settings', label: '设置', Icon: Settings2 }] as const).map(({ id, label, Icon }) => <button key={id} className={tab === id ? 'active' : ''} onClick={() => { setTab(id); setQuery(''); }}><Icon size={20} />{label}</button>)}</nav>}
+    {!embedded && !compose && !selected && <nav className="hub-nav">{assistant && <button className={tab === 'assistant' ? 'active' : ''} onClick={() => setTab('assistant')}><MessageSquare size={20} />对话</button>}{([{ id: 'tasks', label: '任务', Icon: MessageSquare }, { id: 'inbox', label: '资料箱', Icon: Inbox }, { id: 'settings', label: '设置', Icon: Settings2 }] as const).slice().sort((a, b) => desktop ? ({ inbox: 0, tasks: 1, settings: 2 }[a.id] - { inbox: 0, tasks: 1, settings: 2 }[b.id]) : 0).map(({ id, label, Icon }) => <button key={id} className={tab === id ? 'active' : ''} onClick={() => { setTab(id); setQuery(''); }}><Icon size={20} />{desktop && id === 'tasks' ? '跨端' : label}</button>)}</nav>}
   </div>;
 }
 

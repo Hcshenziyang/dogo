@@ -3,6 +3,7 @@ import { HubView } from '@dogo/hub-ui';
 import { HubSession } from '@dogo/hub-ui/client';
 import { MemoryManager } from '@dogo/hub-ui/memory';
 import { AccountSettings } from '@dogo/hub-ui/account';
+import desktopCss from './desktop.css?inline';
 import css from '@dogo/hub-ui/style.css?inline';
 
 const native = (method: string, params?: unknown): Promise<any> => {
@@ -17,7 +18,7 @@ async function call(method: string, params?: unknown) {
 const memory = (input: any) => input.op === 'export' && (window as any).dogoNative ? native('memory', input) : call('memoryAction', input);
 const account = (input: any) => native('account', input);
 
-export const inject = ['slots', 'layout'];
+export const inject = ['slots', 'layout', 'uiWorkspace'];
 function createClient(scope: string) {
   return new HubSession({
     saveArtifact: value => native('saveArtifact', value),
@@ -26,16 +27,16 @@ function createClient(scope: string) {
   }, { get: () => call('hubCache', { scope }), set: value => call('hubCache', { scope, value }) });
 }
 export function apply(ctx: any) {
-  const Panel = () => <DogOPanel />;
+  const Panel = () => <DogOPanel openConversation={() => ctx.layout.selectPanel(null)} openSession={(id: string) => ctx.uiWorkspace.openSession(id)} />;
   const Icon = ({ size = 18 }: { size?: number }) => <span style={{ fontSize: size }} aria-hidden="true">D</span>;
   ctx.effect(() => {
-    const style = document.createElement('style'); style.textContent = css + '\n.dogo-plugin{height:100%;overflow:auto;padding:var(--dsh-frame-top-clearance,16px) 16px 16px}.dogo-plugin .hub-shell{height:auto;min-height:600px}.dogo-plugin input[type=checkbox]{width:auto}';
+    const style = document.createElement('style'); style.textContent = css + desktopCss;
     document.head.append(style); return () => style.remove();
   });
   ctx.slots.inject('main', () => ctx.slots.register({ name: 'main', key: 'dogo' }, Panel));
   ctx.slots.inject('sidebar.panellist', () => ctx.slots.register({ name: 'sidebar.panellist', id: 'dogo', order: 10, label: () => 'DogO · 跨端与资料' }, Icon));
 }
-function DogOPanel() {
+function DogOPanel({ openSession, openConversation }: { openSession(id: string): void; openConversation(): void }) {
   const [state, setState] = useState<any>(), [error, setError] = useState('');
   useEffect(() => {
     let live = true, pending = false;
@@ -46,39 +47,59 @@ function DogOPanel() {
   const scope = state?.relay.configured ? `${state.relay.url}|${state.relay.device}` : 'local';
   const client = useMemo(() => createClient(scope), [scope]);
   const hasNative = !!(window as any).dogoNative;
-  return <div className="dogo-plugin"><h1>DogO</h1>{error && <p role="alert">{error}</p>}
-    <HubView key={scope} client={client} desktop settings={<>
-      {hasNative ? <AccountSettings call={account} changed={() => client.refresh()} /> : <p>当前为浏览器连接。本机账号、设备授权请在 DogO 桌面客户端中管理。</p>}
-      <section className="hub-card"><h3>设备与连接</h3><p>{state?.relay.connected ? '跨端已连接' : '跨端未连接；本机 DSH 会话仍可用'}</p>
-        <button onClick={() => void run(() => call('refreshRelay'))}>刷新</button>
-        {hasNative && <><button onClick={() => void run(() => native('importRelay'))}>导入已有设备凭据</button><button onClick={() => void run(() => native('prepare'))}>准备检查</button>
-          <label><input type="checkbox" checked={state?.hub.policy.autoExecute ?? false} onChange={e => void run(() => native('remotePolicy', { autoExecute: e.target.checked }))} />允许已授权设备自动执行</label>
-          <button onClick={() => void run(() => native('registerProject'))}>登记项目文件夹</button>
-          {state?.hub.projects.map((p: any) => <Project key={p.id} project={p} run={run} />)}
-          <NativeSettings policy={state?.capabilities.policy} run={run} />
-        </>}
-        {state?.readiness?.checks.map((c: any) => <p key={c.id}>{c.ok ? '✓' : '待处理'} · {c.message}</p>)}
-        {state?.hub.error && <p role="alert">{state.hub.error}</p>}
-      </section>
-      <MemoryManager key={state ? `${state.relay.url}|${state.relay.device}` : 'local'} scope={state ? `${state.relay.url}|${state.relay.device}` : 'local'} call={memory}
-        devices={state?.hub.items.filter((i: any) => i.type === 'device').map((i: any) => ({ id: i.owner, name: i.name })) ?? []} />
-      {hasNative && <button onClick={() => void run(() => native('openMemory'))}>打开记忆目录</button>}
-      <section className="hub-card"><h3>历史任务</h3><p>旧任务保留查看；新会话使用 DSH 工作区。</p>{state?.tasks.map((t: any) => <details key={t.id}><summary>{t.title} · {t.status}</summary><pre style={{ whiteSpace: 'pre-wrap' }}>{t.output || t.error}</pre></details>)}</section>
-    </>} />
+  return <div className="dogo-plugin">{error && <p role="alert">{error}</p>}
+    <HubView key={scope} client={client} desktop initialTab="inbox"
+      localIdentity={{ device: state?.relay.device, instance: state?.hub.instance }} openNativeSession={openSession} openNativeConversation={openConversation}
+      settings={<DesktopSettings state={state} scope={scope} client={client} hasNative={hasNative} run={run} />} />
   </div>;
 }
+const categories = [
+  ['account', '账号与设备', '登录、配对与设备授权'],
+  ['connection', '跨端连接', '连接状态与自动执行'],
+  ['memory', '记忆与同步', '查看、纠正与管理助理记忆'],
+  ['permissions', '本机权限', '电脑操作、Codex 与 SSH'],
+  ['projects', '项目文件夹', '管理可访问的项目与执行权限'],
+  ['general', '通用', '登录系统时启动'],
+  ['history', '历史记录', '查看旧版任务'],
+] as const;
+function DesktopSettings({ state, scope, client, hasNative, run }: any) {
+  const [page, setPage] = useState('');
+  const title = categories.find(c => c[0] === page)?.[1];
+  return <div className="dogo-settings">
+    {page ? <><button className="hub-text" onClick={() => setPage('')}>← 返回设置</button><h2>{title}</h2></> :
+      <div className="dogo-settings-list">{categories.map(([id, name, description]) => <button key={id} onClick={() => setPage(id)}><span><strong>{name}</strong><small>{description}</small></span><span aria-hidden="true">›</span></button>)}</div>}
+    {page === 'account' && (hasNative ? <AccountSettings call={account} changed={() => client.refresh()} /> : <p>请在 DogO 桌面客户端中管理账号与设备授权。</p>)}
+    {page === 'connection' && <section className="hub-card"><h3>{state?.relay.connected ? '跨端已连接' : '跨端未连接'}</h3><p className="hub-muted">本机对话不依赖跨端连接。</p>
+      <button onClick={() => void run(() => call('refreshRelay'))}>刷新连接</button>
+      {hasNative && <><button onClick={() => void run(() => native('importRelay'))}>导入设备凭据</button>
+        <label><input type="checkbox" checked={state?.hub.policy.autoExecute ?? false} onChange={e => void run(() => native('remotePolicy', { autoExecute: e.target.checked }))} />允许已授权设备自动执行</label>
+        <details><summary>连接诊断</summary><button onClick={() => void run(() => native('prepare'))}>运行检查</button>{state?.readiness?.checks.map((c: any) => <p key={c.id}>{c.ok ? '✓' : '待处理'} · {c.message}</p>)}</details></>}
+      {state?.hub.error && <p role="alert">{state.hub.error}</p>}
+      {state?.hub.items.filter((i: any) => i.type === 'device').map((d: any) => <p key={d.id}>{d.name} · {d.online ? '在线' : '离线'}</p>)}
+    </section>}
+    {page === 'memory' && <><MemoryManager scope={scope} call={memory} devices={state?.hub.items.filter((i: any) => i.type === 'device').map((i: any) => ({ id: i.owner, name: i.name })) ?? []} />
+      {hasNative && <button onClick={() => void run(() => native('openMemory'))}>打开记忆目录</button>}</>}
+    {page === 'permissions' && (hasNative ? <NativeSettings policy={state?.capabilities.policy} run={run} /> : <p>请在桌面客户端中管理本机权限。</p>)}
+    {page === 'projects' && <section className="hub-card">{hasNative ? <><button onClick={() => void run(() => native('registerProject'))}>添加项目文件夹</button>{state?.hub.projects.map((p: any) => <Project key={p.id} project={p} run={run} />)}{!state?.hub.projects.length && <p className="hub-muted">尚未添加项目文件夹。</p>}</> : <p>请在桌面客户端中管理项目文件夹。</p>}</section>}
+    {page === 'general' && (hasNative ? <GeneralSettings run={run} /> : <p>请在桌面客户端中管理启动设置。</p>)}
+    {page === 'history' && <section className="hub-card"><p className="hub-muted">旧版任务只读保留。当前对话在 DSH 会话中查看。</p>{state?.tasks.map((t: any) => <details key={t.id}><summary>{t.title} · {t.status}</summary><pre>{t.output || t.error}</pre></details>)}{!state?.tasks.length && <p>暂无旧版任务。</p>}</section>}
+  </div>;
+}
+function GeneralSettings({ run }: any) {
+  const [login, setLogin] = useState<any>(), [error, setError] = useState('');
+  useEffect(() => { void native('loginItem').then(setLogin).catch(e => setError(e.message)); }, []);
+  return <section className="hub-card">{error && <p role="alert">{error}</p>}{login ? <label><input type="checkbox" disabled={!login.supported} checked={login.openAtLogin} onChange={e => void run(async () => setLogin(await native('loginItem', { enabled: e.target.checked })))} />登录系统时启动 DogO</label> : !error && <p>正在读取设置…</p>}</section>;
+}
+
 function NativeSettings({ policy, run }: any) {
   const [value, setValue] = useState<any>(), [hosts, setHosts] = useState('');
-  const [login, setLogin] = useState<any>();
   useEffect(() => { if (policy && !value) { setValue(policy); setHosts(policy.sshHosts.join('\n')); } }, [policy]);
-  useEffect(() => { void native('loginItem').then(setLogin).catch(() => {}); }, []);
   if (!value) return null;
   return <section className="hub-card"><h3>本机能力</h3><p>权限由原生客户端确认；DSH 自身工具权限独立管理。</p>
     <label><input type="checkbox" checked={value.computer} onChange={e => setValue({ ...value, computer: e.target.checked })} />电脑操作（需支持的平台与系统授权）</label>
     <label><input type="checkbox" checked={value.codex} onChange={e => setValue({ ...value, codex: e.target.checked })} />Codex 编码委派</label>
     <label>SSH Host 别名<textarea value={hosts} onChange={e => setHosts(e.target.value)} /></label>
     <button onClick={() => void run(() => native('capabilitiesConfigure', { ...value, sshHosts: hosts.split(/\s+/).filter(Boolean) }))}>保存权限</button>
-    {login && <label><input type="checkbox" disabled={!login.supported} checked={login.openAtLogin} onChange={e => void run(async () => setLogin(await native('loginItem', { enabled: e.target.checked })))} />登录系统时启动 DogO</label>}
   </section>;
 }
 function Project({ project, run }: any) {
