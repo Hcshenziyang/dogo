@@ -47,13 +47,19 @@ else {
     return host.request(method, params);
   }
   function show() {
-    if (window) {
+    if (!quitting && window && !window.isDestroyed()) {
       window.show();
       window.focus();
     }
   }
+  function hide() {
+    if (window && !window.isDestroyed()) window.hide();
+  }
+  function isWindowFocused() {
+    return window && !window.isDestroyed() && window.isFocused();
+  }
   function updateTray() {
-    if (!tray) return;
+    if (!tray || tray.isDestroyed()) return;
     const status = !latest?.relay?.configured ? '未登录 · 本机可用' : !latest.relay.connected ? '中转离线 · 等待重连' : latest.hub?.policy.autoExecute ? '在线 · 允许接单' : '在线 · 接单暂停';
     tray.setToolTip('DogO · ' + status);
     tray.setContextMenu(Menu.buildFromTemplate([{ label: status, enabled: false }, { label: '打开 DogO', click: show }, { type: 'separator' }, { label: '完全退出，停止接单', click: () => app.quit() }]));
@@ -72,7 +78,7 @@ else {
       const credentialFile = path.join(directory, 'relay-credential.enc');
       const encryptionReady = () => safeStorage.isEncryptionAvailable() &&
         !(process.platform === 'linux' && safeStorage.getSelectedStorageBackend() === 'basic_text');
-      let currentCredential;
+      let currentCredential, accountConnection;
       const saveCredential = pairing => {
         if (!encryptionReady()) throw new Error('系统安全存储不可用，未保存登录');
         mkdirSync(directory, { recursive: true, mode: 0o700 });
@@ -118,7 +124,7 @@ else {
           latest = snapshot;
           updateTray();
           workspace?.backendChanged(latest.backend);
-          if (hadHub && !window?.isFocused() && Notification.isSupported()) {
+          if (hadHub && !isWindowFocused() && Notification.isSupported()) {
             for (const item of latest.hub?.items ?? []) {
               const signature = `${item.state}:${item.status}:${item.answer ?? ''}`;
               if (previousHub.get(item.id) === signature) continue;
@@ -132,7 +138,7 @@ else {
             if (
               previous.get(task.id) === "running" &&
               ["succeeded", "failed", "cancelled"].includes(task.status) &&
-              !window?.isFocused() &&
+              !isWindowFocused() &&
               Notification.isSupported()
             )
               new Notification({
@@ -147,6 +153,7 @@ else {
         },
       });
       await host.start();
+      if (quitting) return;
       session.defaultSession.setPermissionRequestHandler(
         (_webContents, _permission, callback) => callback(false),
       );
@@ -168,6 +175,16 @@ else {
           webSecurity: true,
         },
       });
+      // Account restoration can await the keychain/relay; closing must already hide the window.
+      window.on("close", (event) => {
+        if (!quitting) {
+          event.preventDefault();
+          hide();
+        }
+      });
+      window.once('closed', () => workspace?.dispose());
+      window.webContents.on("will-navigate", (event) => event.preventDefault());
+      window.webContents.setWindowOpenHandler(() => ({ action: "deny" }));
       function trusted(event, allowWorkspace = false) {
         if (allowWorkspace && workspace?.trusted(event)) return;
         if (
@@ -191,7 +208,7 @@ else {
         openExternal: url => shell.openExternal(url),
       });
       ipcMain.handle('dogo:workspaceSnapshot', event => { trusted(event); return workspace.snapshot(); });
-      ipcMain.handle('dogo:account', (event, input) => { trusted(event, true); return account.execute(input); });
+      ipcMain.handle('dogo:account', async (event, input) => { trusted(event, true); await accountConnection; return account.execute(input); });
       ipcMain.handle('dogo:saveArtifact', async (event, input) => {
         trusted(event, true);
         if (!input || typeof input.id !== 'string' || !/^[a-f0-9-]{36}$/.test(input.id) || input.origin !== latest?.relay?.url) throw new Error('附件身份或服务地址无效');
@@ -208,7 +225,6 @@ else {
       });
       ipcMain.handle('dogo:workspaceShow', (event, value) => { trusted(event); return workspace.show(workspaceVisibility(value)); });
       ipcMain.handle('dogo:workspaceReload', async event => { trusted(event); await workspace.load(true); return workspace.snapshot(); });
-      window.on('closed', () => workspace.dispose());
       ipcMain.handle('dogo:prepare', async event => {
         trusted(event, true);
         return rpc('prepare', { screen: process.platform === 'darwin' ? systemPreferences.getMediaAccessStatus('screen') : 'unsupported',
@@ -271,13 +287,6 @@ else {
         window.webContents.send('dogo:open-workspace');
         return true; // No URL or bootstrap token crosses renderer IPC.
       });
-      if (existsSync(credentialFile) && encryptionReady()) {
-        try {
-          const pairing = pairingSchema.parse(JSON.parse(safeStorage.decryptString(readFileSync(credentialFile))));
-          currentCredential = pairing;
-          await rpc('connectRelay', pairing);
-        } catch { console.error('DogO device connection could not be restored; re-import the device file in Settings.'); }
-      }
       ipcMain.handle("dogo:chooseWorkspace", async (event) => {
         trusted(event);
         const result = await dialog.showOpenDialog(window, {
@@ -295,14 +304,6 @@ else {
         const task = state.tasks.find((t) => t.id === id);
         if (!task) throw new Error("任务不存在");
         clipboard.writeText(task.output);
-      });
-      window.webContents.on("will-navigate", (event) => event.preventDefault());
-      window.webContents.setWindowOpenHandler(() => ({ action: "deny" }));
-      window.on("close", (event) => {
-        if (!quitting) {
-          event.preventDefault();
-          window.hide();
-        }
       });
       const pixels = Buffer.alloc(16 * 16 * 4);
       for (let y = 3; y <= 12; y++)
@@ -339,7 +340,7 @@ else {
               {
                 label: "关闭窗口，保留后台",
                 accelerator: "CmdOrCtrl+W",
-                click: () => window.hide(),
+                click: hide,
               },
               { type: "separator" },
               {
@@ -353,11 +354,22 @@ else {
           { role: "windowMenu" },
         ]),
       );
+      // Restore the saved identity before renderer IPC, but do not gate the local page on the relay.
+      if (existsSync(credentialFile) && encryptionReady()) {
+        try {
+          const pairing = pairingSchema.parse(JSON.parse(safeStorage.decryptString(readFileSync(credentialFile))));
+          currentCredential = pairing;
+          accountConnection = rpc('connectRelay', pairing).catch(() => {
+            console.error('DogO device connection could not be restored; re-import the device file in Settings.');
+          });
+        } catch { console.error('DogO device connection could not be restored; re-import the device file in Settings.'); }
+      }
       await window.loadFile(entryFile);
     })
     .catch(async (error) => {
-      dialog.showErrorBox("DogO 启动失败", error.message);
+      if (quitting) return;
       quitting = true;
+      dialog.showErrorBox("DogO 启动失败", error.message);
       await host?.close().catch(() => {});
       app.exit(1);
     });
