@@ -1,7 +1,0 @@
-{
-  "name": "@dogo/hub-ui", "version": "0.1.0", "private": true, "type": "module",
-  "scripts": { "test": "node --test src/*.test.ts" },
-  "exports": { ".": "./src/HubView.tsx", "./client": "./src/client.ts", "./account": "./src/AccountSettings.tsx", "./browser": "./src/browser.ts", "./memory": "./src/MemoryManager.tsx", "./style.css": "./src/style.css" },
-  "dependencies": { "react": "19.3.1", "lucide-react": "0.468.0" },
-  "devDependencies": { "@types/react": "19.3.0" }
-}

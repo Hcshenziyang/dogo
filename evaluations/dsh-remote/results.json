@@ -1,0 +1,132 @@
+{
+  "date": "2026-10-26",
+  "upstream_commit": "fac5e6005b6b747889ef01193a64601bb14f53ad",
+  "installed_dsh": "0.2.0-rc.2",
+  "model": "deterministic fixture; no external model provider",
+  "upstream_tests": {
+    "initial": {
+      "passed": 792,
+      "failed": 2,
+      "reason": "WebRTC negotiation timeout"
+    },
+    "isolated_rtc_retest": {
+      "passed": 9,
+      "failed": 0
+    },
+    "serial_full_retest": {
+      "passed": 794,
+      "failed": 0
+    }
+  },
+  "upstream_checks": {
+    "typecheck": true,
+    "production_build": true,
+    "bundle_check": true,
+    "source_checkout_clean_after_verification": true
+  },
+  "dogo_backend_tests": {
+    "passed": 38,
+    "failed": 0
+  },
+  "relay": [
+    {
+      "test": "encrypted-relay-connect",
+      "passed": true
+    },
+    {
+      "test": "host-capabilities",
+      "passed": true,
+      "features": {
+        "capabilities": [
+          "workspace.upload.v1",
+          "harness.remote.v3",
+          "harness.remote.transfer.v1",
+          "plugin.route.v1",
+          "remote.history.compact.v1"
+        ],
+        "workspaceTypes": []
+      }
+    },
+    {
+      "test": "native-session-list",
+      "passed": true
+    },
+    {
+      "test": "native-session-create",
+      "passed": true,
+      "sessionId": "e58c203a-2732-4862-856a-2baacf6424c2"
+    },
+    {
+      "test": "client-disconnect-host-completes-and-history-recovers",
+      "passed": true
+    },
+    {
+      "test": "same-native-request-id-no-second-model-run",
+      "passed": true
+    },
+    {
+      "test": "continue-same-native-session",
+      "passed": true
+    },
+    {
+      "test": "local-relay-roundtrip",
+      "passed": true,
+      "samples": 20,
+      "medianMs": 2.992750000000342,
+      "p95Ms": 5.483041999999841
+    },
+    {
+      "test": "revocation-closes-live-remote-access",
+      "passed": true
+    }
+  ],
+  "queue": [
+    {
+      "test": "upstream-account-api-not-compatible-with-dogo",
+      "passed": true
+    },
+    {
+      "test": "offline-memo-enqueued-before-server-process-exits",
+      "passed": true
+    },
+    {
+      "test": "offline-delivery-creates-real-native-session-and-prompt",
+      "passed": true
+    },
+    {
+      "test": "ack-loss-server-restart-replays-same-native-request",
+      "passed": true
+    },
+    {
+      "test": "one-model-run-and-native-session-id-returned-to-memo",
+      "passed": true
+    }
+  ],
+  "native_restart": {
+    "test": "native-request-dedup-after-host-process-restart",
+    "before": 1,
+    "after": 1,
+    "result": {
+      "ok": true,
+      "value": {
+        "accepted": true
+      }
+    },
+    "passed": true
+  },
+  "original_worktree_guard": {
+    "branch": "main",
+    "head": "344e3140ce09c01fa54db6eaa305d17393b970ea",
+    "index_and_status_and_source_hashes_unchanged": true
+  },
+  "android": {
+    "test": "android-release-emulator-ui",
+    "android": "API 35 ARM64",
+    "package": "io.github.liguobao.dshremote",
+    "version": "0.5.18",
+    "local_relay_via_adb_reverse": true,
+    "login_device_trust_workspace_create_prompt": true,
+    "screen_off_then_resume_reply_visible": true,
+    "real_phone_or_public_network": false
+  }
+}

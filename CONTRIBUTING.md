@@ -1,13 +1,9 @@
-# 开发约定
+# 参与约定
 
-当前有服务器服务原型，助理客户端尚未实现；许可证未选定，暂不接受外部代码贡献。
+先阅读 AGENTS.md、PRODUCT.md、ARCHITECTURE.md、PLAN.md 和 STATUS.md。
 
-- 先阅读 PRODUCT.md、ARCHITECTURE.md、PLAN.md 和 STATUS.md。
-- 未确认需求保持“候选/待确认”，不要因文档已有描述就直接实现。
-- 每次变更保持目标明确，并记录已实现与已验证的区别。
-- 模块按职责依赖；前端不能绕过运行时权限执行命令或直接读写业务数据库。
-- 不提交模型权重、个人记忆、会话、凭据、日志、旧项目数据或打包产物。
-- 保留第三方版权和许可；复用旧代码前核对许可及来源。
-- 保护所有 `note-szy:` 注释，具体规则见 AGENTS.md。
-- 检查命令：`pnpm check`（骨架）、`pnpm typecheck`、`pnpm test:services`（服务器原型）。
-- 后续引入依赖时固定兼容版本并提交锁文件；实际 CI 与平台验证结果写入 STATUS.md。
+当前优先实现 Python 后端，使用 FastAPI、SQLite 和 uv。未确认场景不得写成已批准需求，未验证接口不得写成已可用能力。
+
+旧工程保存在仓库外及 Git 历史中，不恢复旧依赖、旧协议或历史兼容代码作为新实现的默认起点。需要参考或迁回代码时，保留仍适用的 `note-szy:` 人工笔记。
+
+在 `server/` 执行 `uv sync --locked`、`uv run pytest -q`、`uv run ruff check src tests` 和 `uv run ruff format --check src tests`。真实配置、凭据、运行数据、虚拟环境和构建产物不得提交。DSH、手机和线上验证需单独记录，不能由服务端测试替代。

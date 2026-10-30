@@ -50,3 +50,11 @@ relay-credential.enc*
 **/android/.gradle/
 **/android/**/build/
 **/android/local.properties
+# Python server dependencies, caches and local runtime state.
+.venv/
+__pycache__/
+*.py[cod]
+.pytest_cache/
+.ruff_cache/
+*.egg-info/
+jwt-secret

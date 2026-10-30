@@ -1,0 +1,23 @@
+{
+  "name": "dogo-plugins",
+  "private": true,
+  "type": "module",
+  "packageManager": "pnpm@9.15.4",
+  "scripts": {
+    "build": "node scripts/build.mjs",
+    "check": "tsc --noEmit",
+    "test": "vitest run",
+    "pack": "pnpm build && node scripts/pack.mjs"
+  },
+  "devDependencies": {
+    "@types/node": "^24.0.0",
+    "@types/ws": "^8.5.13",
+    "esbuild": "0.25.12",
+    "https-proxy-agent": "7.0.6",
+    "prettier": "3.6.2",
+    "typescript": "5.9.3",
+    "vitest": "2.1.9",
+    "ws": "8.21.3",
+    "zod": "3.25.76"
+  }
+}
