@@ -20,10 +20,10 @@ pnpm test
 pnpm run pack
 ```
 
-产物为 `release/dogo-memos-0.2.5.tgz`、`release/dogo-devices-0.2.5.tgz`，不提交源码仓库。使用 DSH 自带插件管理器安装到指定 profile：
+产物为 `release/dogo-memos-0.2.6.tgz`、`release/dogo-devices-0.2.6.tgz`，不提交源码仓库。使用 DSH 自带插件管理器安装到指定 profile：
 
 ```sh
-dsh plugin --profile web add /绝对路径/dogo-memos-0.2.5.tgz /绝对路径/dogo-devices-0.2.5.tgz
+dsh plugin --profile web add /绝对路径/dogo-memos-0.2.6.tgz /绝对路径/dogo-devices-0.2.6.tgz
 ```
 
 同版本重打包调试时使用新的安装包路径或升级版本，并核对已安装 bundle；DSH 包管理器可能沿用旧文件缓存。

@@ -29,8 +29,13 @@ export const styles = `
 .dg-memo-browser{display:flex;flex:1;flex-direction:column;min-width:0;min-height:0;overflow:auto;padding:28px 38px 24px}
 .dg-memo-toolbar{display:flex;align-items:center;gap:10px;flex-wrap:wrap;flex:none;padding-bottom:22px}
 .dg-memo-toolbar .dg-search{flex:1;min-width:140px;max-width:360px;height:38px;background:var(--dg-bg);border-radius:7px}
-.dg-memo-toolbar .dg-search input{height:100%;font-size:12px}
-.dg-memo-toolbar .dg-button{min-height:38px;border-radius:7px}
+/* The wrapper owns the focus ring. Reset the search control itself, including host focus styles. */
+.dogo[data-dogo=memos] .dg-memo-toolbar .dg-search>input[type=search],
+.dogo[data-dogo=memos] .dg-memo-toolbar .dg-search>input[type=search]:focus,
+.dogo[data-dogo=memos] .dg-memo-toolbar .dg-search>input[type=search]:focus-visible{appearance:none;-webkit-appearance:none;box-sizing:border-box;flex:1;width:100%;min-width:0;height:100%;min-height:0!important;margin:0!important;padding:0!important;border:0!important;border-radius:0!important;outline:none!important;outline-offset:0!important;box-shadow:none!important;background:transparent!important;font-size:12px;line-height:normal}
+.dogo[data-dogo=memos] .dg-memo-toolbar .dg-search:focus-within{border-color:var(--dg-accent);outline:none;box-shadow:0 0 0 1px var(--dg-accent)}
+@media(forced-colors:active){.dogo[data-dogo=memos] .dg-memo-toolbar .dg-search:focus-within{outline:2px solid Highlight;outline-offset:2px;box-shadow:none}}
+.dg-memo-toolbar .dg-button{height:38px;min-height:38px;box-sizing:border-box;border-radius:7px}
 .dg-memo-toolbar>.dg-button:last-child{margin-left:auto}
 .dg-memo-filters{display:flex;align-items:center;flex-wrap:wrap;gap:6px;border-top:1px solid var(--dg-line);padding:16px 0 22px;flex:none}
 .dg-filter-chip{display:inline-flex;align-items:center;justify-content:center;gap:7px;max-width:100%;min-height:34px;border:1px solid transparent;border-radius:7px;background:transparent;color:var(--dg-muted);padding:7px 11px;font-size:12px!important;overflow-wrap:anywhere;white-space:normal;text-align:left}
