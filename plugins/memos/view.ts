@@ -37,6 +37,7 @@ export function createMemosView(React: any, ui: any) {
       [detail, setDetail] = React.useState(false);
     const [properties, setProperties] = React.useState(false),
       [preview, setPreview] = React.useState(false);
+    const [projectCreating, setProjectCreating] = React.useState(false);
     const [dispatchOpen, setDispatchOpen] = React.useState(false),
       [pending, setPending] = React.useState(null as Dict | null);
     const [comparison, setComparison] = React.useState(null as Dict | null),
@@ -45,6 +46,7 @@ export function createMemosView(React: any, ui: any) {
       mounted = React.useRef(true),
       request = React.useRef(0);
     const editor = React.useRef(null);
+    const newProjectInput = React.useRef(null as HTMLInputElement | null);
     const panel = React.useRef(null as HTMLElement | null);
     const searchInput = React.useRef(null as HTMLInputElement | null);
     const newButton = React.useRef(null as HTMLButtonElement | null);
@@ -85,6 +87,9 @@ export function createMemosView(React: any, ui: any) {
         });
       }
     }, [detail, busy]);
+    React.useEffect(() => {
+      if (projectCreating) requestAnimationFrame(() => newProjectInput.current?.focus());
+    }, [projectCreating]);
     const storeDraft = (value: Dict) => {
       current.current = value;
       memoryDrafts.current.set(value.id || 'new', value);
@@ -138,6 +143,7 @@ export function createMemosView(React: any, ui: any) {
       setDetail(open);
       setPreview(false);
       setProperties(false);
+      setProjectCreating(false);
       setDispatchOpen(false);
     };
     const newMemo = () => {
@@ -152,6 +158,7 @@ export function createMemosView(React: any, ui: any) {
       setDetail(true);
       setPreview(false);
       setProperties(false);
+      setProjectCreating(false);
       setDispatchOpen(!!value.instruction);
       requestAnimationFrame(() => editor.current?.focus());
     };
@@ -703,7 +710,7 @@ export function createMemosView(React: any, ui: any) {
                       { className: 'dg-row' },
                       h(Button, {
                         icon: 'tag',
-                        title: '项目、分类与标签',
+                        title: '更多属性：标签与启用状态',
                         'aria-label': '属性',
                         'aria-expanded': properties,
                         className: properties ? 'dg-selected' : '',
@@ -761,26 +768,70 @@ export function createMemosView(React: any, ui: any) {
                   h(
                     'div',
                     { className: 'dg-editor-scroll' },
+                    h(
+                      'div',
+                      { className: 'dg-memo-project-field' },
+                      h(
+                        'label',
+                        { className: 'dg-field' },
+                        h('span', null, '项目'),
+                        h(
+                          'select',
+                          {
+                            'aria-label': '项目',
+                            value: projectCreating ? 'new' : JSON.stringify(memo.project || ''),
+                            disabled: busy,
+                            onChange: (e: any) => {
+                              if (e.target.value === 'new') {
+                                setProjectCreating(true);
+                                update({ project: '' });
+                              } else {
+                                setProjectCreating(false);
+                                update({ project: JSON.parse(e.target.value) });
+                              }
+                            },
+                          },
+                          h('option', { value: JSON.stringify('') }, '未分类'),
+                          ...[...new Set([...projects, memo.project].filter(Boolean))].map(
+                            (name: any) =>
+                              h('option', { key: name, value: JSON.stringify(name) }, name),
+                          ),
+                          h('option', { value: 'new' }, '＋ 新项目…'),
+                        ),
+                      ),
+                      projectCreating &&
+                        h(
+                          'label',
+                          { className: 'dg-field' },
+                          h('span', null, '新项目名称'),
+                          h('input', {
+                            ref: newProjectInput,
+                            'aria-label': '新项目名称',
+                            placeholder: '输入名称，保存备忘录时使用',
+                            value: memo.project,
+                            maxLength: 100,
+                            disabled: busy,
+                            onChange: (e: any) => update({ project: e.target.value }),
+                          }),
+                        ),
+                      h(
+                        'small',
+                        { className: 'dg-muted' },
+                        projectCreating
+                          ? '随备忘录一起保存，不单独创建空项目。'
+                          : '从已加载项目选择，也可以输入新名称。',
+                      ),
+                    ),
                     properties &&
                       h(
                         'div',
                         { className: 'dg-properties' },
-                        h(Field, {
-                          label: '项目',
-                          placeholder: '例如：个人想法',
-                          value: memo.project,
-                          disabled: busy,
-                          maxLength: 100,
-                          onChange: (e: any) => update({ project: e.target.value }),
-                        }),
-                        h(Field, {
-                          label: '分类',
-                          placeholder: '例如：灵感、工作、生活',
-                          value: memo.category,
-                          disabled: busy,
-                          maxLength: 100,
-                          onChange: (e: any) => update({ category: e.target.value }),
-                        }),
+                        memo.category &&
+                          h(
+                            'p',
+                            { className: 'dg-small dg-muted dg-span' },
+                            '原分类：' + memo.category + '（保留，不与项目合并）',
+                          ),
                         h(
                           'div',
                           { className: 'dg-span' },
@@ -805,23 +856,17 @@ export function createMemosView(React: any, ui: any) {
                           '启用这条备忘录',
                         ),
                       ),
-                    h(
-                      'div',
-                      { className: 'dg-editor-meta' },
+                    (!!memo.tags?.length || !memo.active) &&
                       h(
-                        'span',
-                        { className: 'dg-chip' },
-                        h(Icon, { name: 'folder', size: 13 }),
-                        memo.project || '随手记',
+                        'div',
+                        { className: 'dg-editor-meta' },
+                        ...(memo.tags || [])
+                          .slice(0, 4)
+                          .map((tag: string) =>
+                            h('span', { className: 'dg-chip', key: tag }, '# ' + tag),
+                          ),
+                        !memo.active && h(Badge, {}, '已停用'),
                       ),
-                      memo.category && h('span', { className: 'dg-chip' }, memo.category),
-                      ...(memo.tags || [])
-                        .slice(0, 4)
-                        .map((tag: string) =>
-                          h('span', { className: 'dg-chip', key: tag }, '# ' + tag),
-                        ),
-                      !memo.active && h(Badge, {}, '已停用'),
-                    ),
                     h(
                       'div',
                       { className: 'dg-paper' },
@@ -901,6 +946,17 @@ export function createMemosView(React: any, ui: any) {
                             ),
                           ),
                       ),
+                    memo.id &&
+                      !memo.dispatch &&
+                      h(
+                        'section',
+                        { className: 'dg-dispatch' },
+                        h(
+                          'p',
+                          { className: 'dg-small dg-muted' },
+                          '当前版本仅支持新建备忘录时附带 AI 指令。这条备忘录已保存，编辑不会发送指令。',
+                        ),
+                      ),
                     memo.dispatch &&
                       h(
                         'section',
@@ -922,6 +978,11 @@ export function createMemosView(React: any, ui: any) {
                           ),
                         ),
                         h('p', { className: 'dg-small' }, memo.dispatch.instruction),
+                        h(
+                          'p',
+                          { className: 'dg-small dg-muted' },
+                          '这条指令已提交，不能在此改写。修改备忘录不会改变本次投递，也不会再次发送。',
+                        ),
                         h(
                           'p',
                           { className: 'dg-small dg-muted' },

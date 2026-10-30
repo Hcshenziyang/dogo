@@ -254,11 +254,50 @@ describe('formal memo grid flows', () => {
     await f.flush();
     await f.click('编辑：第二条');
     await f.click('属性');
-    await f.edit('项目', '尚未提交的新项目');
+    await f.edit('项目', 'new');
+    await f.edit('新项目名称', '尚未提交的新项目');
     await f.click('关闭编辑器');
     const chips = f.all((n: any) => n.props.className?.includes('dg-filter-chip'));
     expect(chips.some((n: any) => f.text(n) === '尚未提交的新项目')).toBe(false);
     expect(f.tiles().some((n: any) => f.text(n).includes('尚未提交的新项目'))).toBe(true);
+  });
+  it('selects or creates a project while preserving the legacy category in saves', async () => {
+    const f = fixture();
+    await f.flush();
+    await f.click('编辑：第一条');
+    expect(f.named('项目').type).toBe('select');
+    await f.edit('项目', JSON.stringify('生活'));
+    await f.click('保存');
+    expect(f.control).toHaveBeenCalledWith(
+      'submit',
+      expect.objectContaining({
+        method: 'update',
+        data: expect.objectContaining({ project: '生活', category: '原分类' }),
+      }),
+    );
+    await f.edit('项目', 'new');
+    await f.edit('新项目名称', '新项目');
+    await f.click('关闭编辑器');
+    await f.click('编辑：第一条');
+    expect(f.named('项目').props.value).toBe(JSON.stringify('新项目'));
+    await f.click('保存');
+    expect(f.control).toHaveBeenCalledWith(
+      'submit',
+      expect.objectContaining({
+        method: 'update',
+        data: expect.objectContaining({ project: '新项目', category: '原分类' }),
+      }),
+    );
+  });
+  it('explains the current instruction limitation on already-saved notes without adding a fake send action', async () => {
+    const f = fixture();
+    await f.flush();
+    await f.click('编辑：第二条');
+    expect(
+      f.all((n: any) => n.type === 'p' && f.text(n).includes('仅支持新建备忘录时附带 AI 指令')),
+    ).toHaveLength(1);
+    expect(f.named('执行指令')).toBeUndefined();
+    expect(f.named('保存并发送')).toBeUndefined();
   });
   it('preserves single-click delete with original revision and does not ask for confirmation', async () => {
     const f = fixture();

@@ -27,8 +27,8 @@ export const styles = `
 .dogo[data-dogo=memos]:has(.dg-memo-workspace)>.dg-page-head{display:none}
 .dg-memo-workspace{display:flex;flex:1;flex-direction:column;min-width:0;min-height:0;overflow:hidden;background:var(--dg-soft);gap:0}
 .dg-memo-browser{display:flex;flex:1;flex-direction:column;min-width:0;min-height:0;overflow:auto;padding:28px 38px 24px}
-.dg-memo-toolbar{display:flex;align-items:center;gap:10px;flex-wrap:wrap;flex:none;padding-bottom:22px}
-.dg-memo-toolbar .dg-search{flex:1;min-width:140px;max-width:360px;height:38px;background:var(--dg-bg);border-radius:7px}
+.dg-memo-toolbar{display:flex;align-items:center;justify-content:flex-end;gap:10px;flex-wrap:wrap;flex:none;padding-bottom:22px}
+.dg-memo-toolbar .dg-search{flex:0 1 290px;width:290px;min-width:140px;max-width:360px;height:38px;background:var(--dg-bg);border-radius:7px}
 /* The wrapper owns the focus ring. Reset the search control itself, including host focus styles. */
 .dogo[data-dogo=memos] .dg-memo-toolbar .dg-search>input[type=search],
 .dogo[data-dogo=memos] .dg-memo-toolbar .dg-search>input[type=search]:focus,
@@ -36,7 +36,7 @@ export const styles = `
 .dogo[data-dogo=memos] .dg-memo-toolbar .dg-search:focus-within{border-color:var(--dg-accent);outline:none;box-shadow:0 0 0 1px var(--dg-accent)}
 @media(forced-colors:active){.dogo[data-dogo=memos] .dg-memo-toolbar .dg-search:focus-within{outline:2px solid Highlight;outline-offset:2px;box-shadow:none}}
 .dg-memo-toolbar .dg-button{height:38px;min-height:38px;box-sizing:border-box;border-radius:7px}
-.dg-memo-toolbar>.dg-button:last-child{margin-left:auto}
+.dg-memo-toolbar>.dg-button:last-child{margin-left:0}
 .dg-memo-filters{display:flex;align-items:center;flex-wrap:wrap;gap:6px;border-top:1px solid var(--dg-line);padding:16px 0 22px;flex:none}
 .dg-filter-chip{display:inline-flex;align-items:center;justify-content:center;gap:7px;max-width:100%;min-height:34px;border:1px solid transparent;border-radius:7px;background:transparent;color:var(--dg-muted);padding:7px 11px;font-size:12px!important;overflow-wrap:anywhere;white-space:normal;text-align:left}
 .dg-filter-chip:hover:not(:disabled){background:var(--dg-hover);color:var(--dg-ink)}
@@ -70,17 +70,17 @@ export const styles = `
 .dg-memo-grid>.dg-empty .dg-empty-icon{display:none}.dg-memo-grid>.dg-skeleton{min-height:235px;height:auto;aspect-ratio:1.08;margin:0;border-radius:12px}
 .dg-memo-grid-footer{display:flex;align-items:center;justify-content:space-between;flex-wrap:wrap;gap:12px;padding:22px 0 0;font-size:11px;color:var(--dg-muted);flex:none}
 .dg-memo-pending-banner{display:flex;align-items:center;justify-content:space-between;gap:12px;flex-wrap:wrap;padding:10px 14px;margin-bottom:18px;border:1px solid var(--dg-line);border-radius:8px;background:var(--dg-warn-bg);color:var(--dg-warning);font-size:12px}
-.dg-memo-overlay{position:absolute;inset:0;z-index:40;display:flex;justify-content:flex-end;background:#27314430;backdrop-filter:blur(2px)}
-.dg-memo-panel{flex:none;width:min(600px,100%);height:100%;min-height:0;max-height:100%;background:var(--dg-bg);box-shadow:-12px 0 50px #26334718;outline:none}
+.dg-memo-overlay{position:absolute;inset:0;z-index:40;display:flex;align-items:center;justify-content:center;padding:24px;background:#27314430;backdrop-filter:blur(2px)}
+.dg-memo-panel{flex:none;width:min(700px,100%);height:min(660px,100%);min-height:0;max-height:100%;border:1px solid var(--dg-line);border-radius:16px;background:var(--dg-bg);box-shadow:0 28px 100px #26334735;outline:none}
 .dg-memo-panel-head{display:flex;align-items:center;justify-content:space-between;gap:12px;flex:none;padding:18px 24px;border-bottom:1px solid var(--dg-line);font-size:12px;color:var(--dg-muted)}
 .dg-memo-panel .dg-back{display:inline-flex}.dg-memo-panel .dg-editor-tools{flex-wrap:wrap;padding:18px 24px;gap:10px}.dg-memo-panel .dg-editor-tools>.dg-row{flex-wrap:wrap}
-.dg-memo-panel .dg-editor-meta{padding:18px 28px 0}.dg-memo-panel .dg-paper{padding:18px 28px;min-height:200px}.dg-memo-panel .dg-paper textarea{font-size:15px;line-height:1.9;min-height:180px}
+.dg-memo-project-field{display:flex;flex-wrap:wrap;align-items:flex-end;gap:10px 16px;padding:18px 28px 0}.dg-memo-project-field>.dg-field{flex:1;min-width:150px}.dg-memo-project-field>small{flex-basis:100%;font-size:11px}.dg-memo-panel .dg-editor-meta{padding:18px 28px 0}.dg-memo-panel .dg-paper{padding:18px 28px;min-height:180px}.dg-memo-panel .dg-paper textarea{font-size:15px;line-height:1.9;min-height:140px}
 .dg-memo-panel .dg-paper textarea:focus-visible{outline:1px solid color-mix(in srgb,var(--dg-accent) 40%,transparent);outline-offset:8px;border-radius:2px}
 .dg-memo-panel .dg-properties{grid-template-columns:1fr 1fr;margin:14px 24px 0;padding:16px}.dg-memo-panel .dg-dispatch{margin:0 24px 18px}.dg-memo-panel .dg-conflict{flex:none;max-height:45%;overflow:auto;margin:14px 24px}
 .dg-memo-panel .dg-editor-foot{flex-wrap:wrap;padding:12px 24px;gap:8px}.dg-memo-panel .dg-editor-foot .dg-badge{white-space:normal}
 @container(min-width:1450px){.dg-memo-grid{grid-template-columns:repeat(5,minmax(0,1fr))}}
 @container(max-width:1050px){.dg-memo-browser{padding:25px}.dg-memo-grid{grid-template-columns:repeat(3,minmax(0,1fr));gap:15px}.dg-memo-tile{padding:20px;min-height:225px}.dg-filter-chip{padding:7px 9px}}
-@container(max-width:700px){.dg-memo-browser{padding:20px 16px}.dg-memo-toolbar{gap:8px;padding-bottom:18px}.dg-memo-toolbar .dg-search{max-width:none}.dg-memo-toolbar .dg-button{padding:7px 10px}.dg-memo-filters{padding:14px 0 18px;gap:4px}.dg-filter-chip{padding:6px 8px;font-size:11px!important}.dg-memo-grid{grid-template-columns:repeat(2,minmax(0,1fr));gap:12px}.dg-memo-tile{padding:16px;min-height:214px;aspect-ratio:.88}.dg-memo-tile-top{margin-bottom:14px;font-size:10px;gap:4px}.dogo .dg-memo-tile-title{font-size:14px}.dogo .dg-memo-tile-excerpt{font-size:11px}.dg-memo-tile-foot{font-size:10px;padding-top:12px}.dg-memo-grid-footer{font-size:10px}.dg-memo-panel-head{padding:14px 16px}.dg-memo-panel .dg-editor-tools{padding:14px 16px}.dg-memo-panel .dg-paper{padding:18px 24px}.dg-memo-panel .dg-editor-meta{padding-left:24px}.dg-memo-panel .dg-properties{margin-left:16px;margin-right:16px}.dg-memo-panel .dg-dispatch,.dg-memo-panel .dg-conflict{margin-left:16px;margin-right:16px}.dg-memo-panel .dg-editor-foot{padding:12px 16px}}
+@container(max-width:700px){.dg-memo-overlay{padding:12px}.dg-memo-panel{border-radius:12px}.dg-memo-project-field{padding:14px 24px 0}.dg-memo-toolbar{justify-content:flex-end}.dg-memo-browser{padding:20px 16px}.dg-memo-toolbar{gap:8px;padding-bottom:18px}.dg-memo-toolbar .dg-search{flex:1;max-width:none}.dg-memo-toolbar .dg-button{padding:7px 10px}.dg-memo-filters{padding:14px 0 18px;gap:4px}.dg-filter-chip{padding:6px 8px;font-size:11px!important}.dg-memo-grid{grid-template-columns:repeat(2,minmax(0,1fr));gap:12px}.dg-memo-tile{padding:16px;min-height:214px;aspect-ratio:.88}.dg-memo-tile-top{margin-bottom:14px;font-size:10px;gap:4px}.dogo .dg-memo-tile-title{font-size:14px}.dogo .dg-memo-tile-excerpt{font-size:11px}.dg-memo-tile-foot{font-size:10px;padding-top:12px}.dg-memo-grid-footer{font-size:10px}.dg-memo-panel-head{padding:14px 16px}.dg-memo-panel .dg-editor-tools{padding:14px 16px}.dg-memo-panel .dg-paper{padding:18px 24px}.dg-memo-panel .dg-editor-meta{padding-left:24px}.dg-memo-panel .dg-properties{margin-left:16px;margin-right:16px}.dg-memo-panel .dg-dispatch,.dg-memo-panel .dg-conflict{margin-left:16px;margin-right:16px}.dg-memo-panel .dg-editor-foot{padding:12px 16px}}
 @container(max-width:440px){.dg-memo-panel .dg-properties{grid-template-columns:1fr}.dg-memo-panel .dg-properties .dg-span{grid-column:auto}.dg-memo-panel .dg-compare{grid-template-columns:1fr}.dg-memo-panel .dg-editor-tools{gap:8px}.dg-memo-toolbar .dg-search{flex-basis:calc(100% - 140px)}}
 @container(max-width:350px){.dg-memo-grid{grid-template-columns:1fr}.dg-memo-tile{aspect-ratio:1.2}.dg-memo-toolbar .dg-search{flex-basis:100%}}
 @media(prefers-reduced-motion:reduce){.dogo *{scroll-behavior:auto!important;transition:none!important}}

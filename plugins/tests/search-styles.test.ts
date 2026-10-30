@@ -59,6 +59,15 @@ describe('memo search focus styling', () => {
     expect(declarations('.dg-memo-toolbar .dg-search').get('height')).toBe('38px');
     expect(declarations('.dg-memo-toolbar .dg-button').get('height')).toBe('38px');
   });
+  it('groups the desktop toolbar on the right and centers a bounded modal instead of a drawer', () => {
+    expect(declarations('.dg-memo-toolbar').get('justify-content')).toBe('flex-end');
+    expect(declarations('.dg-memo-toolbar>.dg-button:last-child').get('margin-left')).toBe('0');
+    expect(declarations('.dg-memo-toolbar .dg-search').get('flex')).toBe('0 1 290px');
+    expect(declarations('.dg-memo-overlay').get('justify-content')).toBe('center');
+    expect(declarations('.dg-memo-overlay').get('align-items')).toBe('center');
+    expect(declarations('.dg-memo-panel').get('width')).toBe('min(700px,100%)');
+    expect(declarations('.dg-memo-panel').get('height')).toBe('min(660px,100%)');
+  });
   it('parses the complete CSS with the official build parser', () => {
     const result = transformSync(styles, { loader: 'css', minify: true });
     expect(result.warnings).toEqual([]);
