@@ -10,6 +10,8 @@ import {
   type Dict,
 } from '../shared/presentation.js';
 
+import { scheduleForm, planPayload } from './schedule.js';
+
 import { memoProjectTone, memoWithDraft, visibleMemos } from './presentation.js';
 
 export function createMemosView(React: any, ui: any) {
@@ -25,7 +27,14 @@ export function createMemosView(React: any, ui: any) {
     confirmAction,
     openSettings,
   }: any) {
-    const identity = status.server + '/' + status.username;
+    const localFirst = !!status.memoIdentity;
+    const identity = localFirst
+      ? 'local/' + status.memoIdentity
+      : status.server + '/' + status.username;
+    const preferences = readLocal('dogo.login.preferences', {});
+    const legacyServer = status.server || preferences.server;
+    const legacyUser = status.username || preferences.username;
+    const legacyIdentity = legacyServer && legacyUser ? legacyServer + '/' + legacyUser : '';
     const [sort, setSort] = React.useState('updated');
     const [items, setItems] = React.useState([] as Dict[]),
       [cursor, setCursor] = React.useState('');
@@ -42,6 +51,7 @@ export function createMemosView(React: any, ui: any) {
       [pending, setPending] = React.useState(null as Dict | null);
     const [comparison, setComparison] = React.useState(null as Dict | null),
       [localSaved, setLocalSaved] = React.useState(true);
+    const [syncState, setSyncState] = React.useState(status.sync || null);
     const current = React.useRef(null as Dict | null),
       mounted = React.useRef(true),
       request = React.useRef(0);
@@ -57,13 +67,36 @@ export function createMemosView(React: any, ui: any) {
       memoryDrafts.current.has(id)
         ? memoryDrafts.current.get(id)
         : readLocal(draftKey(identity, id));
+    const draftFor = (memo: Dict) => {
+      const current = localDraft(memo.id);
+      if (memoryDrafts.current.has(memo.id)) return current;
+      if (current || !localFirst || !memo.remote_id || !legacyIdentity) return current;
+      const previous = readLocal(draftKey(legacyIdentity, memo.remote_id));
+      if (!previous?.dirty) return null;
+      const sameVersion = previous.revision === memo.remote_revision;
+      return {
+        ...previous,
+        id: memo.id,
+        revision: sameVersion ? memo.revision : 0,
+        legacyConflict: !sameVersion,
+      };
+    };
     const forgetDraft = (id = 'new') => {
       // A tombstone prevents a stale cache from reviving during this page session.
       memoryDrafts.current.set(id, null);
       try {
         localStorage.removeItem(draftKey(identity, id));
       } catch {
-        setError('服务器操作已确认，但本机旧草稿未能清理；重新打开页面前请检查浏览器存储。');
+        setError('备忘录已保存，但本机旧草稿未能清理；重新打开页面前请检查浏览器存储。');
+      }
+    };
+    const forgetImportedNewDraft = (value: Dict) => {
+      if (!localFirst || !value.legacyDraftKey || !value.legacyDraftSnapshot) return;
+      if (JSON.stringify(readLocal(value.legacyDraftKey)) !== value.legacyDraftSnapshot) return;
+      try {
+        localStorage.removeItem(value.legacyDraftKey);
+      } catch {
+        setError('备忘录已保存，但旧草稿未能清理；重新打开页面前请检查浏览器存储。');
       }
     };
     const rememberFocus = () => {
@@ -106,9 +139,9 @@ export function createMemosView(React: any, ui: any) {
     const update = (change: Dict) => {
       if (current.current) storeDraft({ ...current.current, ...change, dirty: true });
     };
-    const list = async (filter = project, more = false) => {
+    const list = async (filter = project, more = false, silent = false) => {
       const sequence = ++request.current;
-      setLoading(true);
+      if (!silent) setLoading(true);
       try {
         const result = await control('list', {
           project: filter,
@@ -131,12 +164,12 @@ export function createMemosView(React: any, ui: any) {
         );
         return result.items;
       } finally {
-        if (mounted.current && sequence === request.current) setLoading(false);
+        if (!silent && mounted.current && sequence === request.current) setLoading(false);
       }
     };
     const select = async (memo: Dict, open = true) => {
       rememberFocus();
-      const saved = localDraft(memo.id);
+      const saved = draftFor(memo);
       const value = saved?.dirty ? saved : await control('get', { id: memo.id });
       if (!mounted.current) return;
       storeDraft(value);
@@ -146,6 +179,29 @@ export function createMemosView(React: any, ui: any) {
       setProjectCreating(false);
       setDispatchOpen(false);
     };
+    React.useEffect(() => {
+      if (!localFirst) return;
+      let active = true;
+      let polling = false;
+      const timer = setInterval(async () => {
+        if (!active || polling || document.hidden) return;
+        polling = true;
+        try {
+          const next = await control('sync-status');
+          if (!active) return;
+          setSyncState(next);
+          if (!busy && !detail) await list(project, false, true);
+        } catch {
+          // Local reads and drafts remain usable if status polling fails.
+        } finally {
+          polling = false;
+        }
+      }, 4000);
+      return () => {
+        active = false;
+        clearInterval(timer);
+      };
+    }, [localFirst, busy, detail, project]);
     const newMemo = () => {
       rememberFocus();
       const value = localDraft() || {
@@ -166,6 +222,25 @@ export function createMemosView(React: any, ui: any) {
       mounted.current = true;
       void run(async () => {
         setPending(await control('pending'));
+        if (localFirst && status.memoIdentity !== 'unowned') {
+          const unowned = readLocal(draftKey('local/unowned'));
+          const claimedBy = readLocal('dogo.memo.unowned.owner');
+          if (unowned && (!claimedBy || claimedBy === identity) && !localDraft()) {
+            writeLocal(draftKey(identity), {
+              ...unowned,
+              legacyDraftKey: draftKey('local/unowned'),
+              legacyDraftSnapshot: JSON.stringify(unowned),
+            });
+            writeLocal('dogo.memo.unowned.owner', identity);
+          }
+          const previousNew = legacyIdentity && readLocal(draftKey(legacyIdentity));
+          if (previousNew && !localDraft())
+            writeLocal(draftKey(identity), {
+              ...previousNew,
+              legacyDraftKey: draftKey(legacyIdentity),
+              legacyDraftSnapshot: JSON.stringify(previousNew),
+            });
+        }
         const previous = readLocal('dogo.draft.' + identity + '.');
         if (previous && !readLocal('dogo.draft.imported.' + identity)) {
           if (!readLocal(draftKey(identity, previous.id || 'new')))
@@ -197,12 +272,20 @@ export function createMemosView(React: any, ui: any) {
       const value = current.current;
       if (
         !value ||
-        pending ||
+        (!localFirst && pending) ||
+        value.legacyConflict ||
         !value.content.trim() ||
-        (!value.id && value.instruction?.trim() && !value.destination)
+        (!value.id && !value.planDraft && value.instruction?.trim() && !value.destination)
       )
         return;
+      const plan = value.planEdited ? value.planDraft : null;
+      const timed = plan ? planPayload(plan) : null;
+      if (value.planEdited && plan && !timed) {
+        setError('请完整填写定时指令、目标设备和有效时间。');
+        return;
+      }
       const data = {
+        ...(value.planEdited ? { plan: plan ? timed : null } : {}),
         content: value.content,
         project: value.project,
         category: value.category,
@@ -219,7 +302,7 @@ export function createMemosView(React: any, ui: any) {
             data: {
               ...data,
               request_id: value.request_id,
-              ...(value.instruction?.trim()
+              ...(!plan && value.instruction?.trim()
                 ? {
                     dispatch: {
                       instruction: value.instruction,
@@ -233,13 +316,22 @@ export function createMemosView(React: any, ui: any) {
         const result = await control('submit', op);
         if (!value.id) {
           forgetDraft();
+          forgetImportedNewDraft(value);
         }
         storeDraft({ ...result, dirty: false });
         setDispatchOpen(false);
         notify(
-          result.dispatch?.status === 'pending'
-            ? '备忘录已保存，指令等待设备接收'
-            : '已保存到 DogO',
+          !localFirst
+            ? result.dispatch?.status === 'pending'
+              ? '备忘录已保存，指令等待设备接收'
+              : '已保存到 DogO'
+            : result.sync_status === 'conflict'
+              ? '冲突副本已保存到本机，请核对后处理'
+              : result.dispatch?.local_pending
+                ? '备忘录已保存到本机，指令等待同步'
+                : status.loggedIn
+                  ? '已保存到本机，等待同步'
+                  : '已保存到本机',
         );
         await list();
       } finally {
@@ -263,7 +355,7 @@ export function createMemosView(React: any, ui: any) {
     });
     const remove = async () => {
       const value = current.current;
-      if (!value?.id || pending) return;
+      if (!value?.id || (!localFirst && pending)) return;
       try {
         await control('submit', {
           method: 'delete',
@@ -282,7 +374,7 @@ export function createMemosView(React: any, ui: any) {
         setPending(await control('pending'));
       }
     };
-    const displayItems = items.map((m: Dict) => memoWithDraft(m, localDraft(m.id)));
+    const displayItems = items.map((m: Dict) => memoWithDraft(m, draftFor(m)));
     const newDraft = localDraft();
     if (
       (newDraft?.content?.trim() || newDraft?.instruction?.trim()) &&
@@ -298,8 +390,14 @@ export function createMemosView(React: any, ui: any) {
       h(
         'section',
         { className: 'dg-conflict' },
-        h('h3', null, '上一笔写入需要确认'),
-        h('p', null, '内容已保留。网络中断时可能已保存成功；版本冲突时请先核对，不会自动覆盖。'),
+        h('h3', null, localFirst ? '旧版线上写入需要确认' : '上一笔写入需要确认'),
+        h(
+          'p',
+          null,
+          localFirst
+            ? '请先核对旧版线上写入，再继续同步。本机备忘录仍可编辑。'
+            : '内容已保留。网络中断时可能已保存成功；版本冲突时请先核对，不会自动覆盖。',
+        ),
         h(
           'div',
           { className: 'dg-compare' },
@@ -330,17 +428,19 @@ export function createMemosView(React: any, ui: any) {
                 void run(async () => {
                   try {
                     const result = await control('retry');
-                    if (pending.method === 'delete') {
-                      if (pending.id) {
-                        forgetDraft(pending.id);
+                    if (!localFirst) {
+                      if (pending.method === 'delete') {
+                        if (pending.id) {
+                          forgetDraft(pending.id);
+                        }
+                        setDraft(null);
+                        current.current = null;
+                      } else {
+                        if (pending.method === 'create') {
+                          forgetDraft();
+                        }
+                        storeDraft({ ...result, dirty: false });
                       }
-                      setDraft(null);
-                      current.current = null;
-                    } else {
-                      if (pending.method === 'create') {
-                        forgetDraft();
-                      }
-                      storeDraft({ ...result, dirty: false });
                     }
                     setComparison(null);
                     await list();
@@ -358,7 +458,11 @@ export function createMemosView(React: any, ui: any) {
               {
                 disabled: busy,
                 onClick: () =>
-                  void run(async () => setComparison(await control('get', { id: pending.id }))),
+                  void run(async () =>
+                    setComparison(
+                      await control(localFirst ? 'get-server' : 'get', { id: pending.id }),
+                    ),
+                  ),
               },
               '查看服务器内容',
             ),
@@ -447,11 +551,14 @@ export function createMemosView(React: any, ui: any) {
             disabled: busy,
             onClick: () =>
               void run(async () => {
+                if (localFirst) await control('sync-now');
                 await list();
                 setPending(await control('pending'));
               }),
           }),
-          h(Button, { icon: 'settings', 'aria-label': 'DogO 设置', onClick: openSettings }),
+          localFirst && !status.loggedIn
+            ? h(Button, { variant: 'secondary', disabled: busy, onClick: openSettings }, '登录同步')
+            : h(Button, { icon: 'settings', 'aria-label': 'DogO 设置', onClick: openSettings }),
         ),
         h(
           'div',
@@ -498,7 +605,13 @@ export function createMemosView(React: any, ui: any) {
           h(
             'div',
             { className: 'dg-memo-pending-banner', role: 'status' },
-            h('span', null, '上一笔写入需要核对，已暂停提交。'),
+            h(
+              'span',
+              null,
+              localFirst
+                ? '旧版线上写入需要核对，本机仍可使用。'
+                : '上一笔写入需要核对，已暂停提交。',
+            ),
             h(
               Button,
               {
@@ -539,7 +652,23 @@ export function createMemosView(React: any, ui: any) {
                       { className: 'dg-memo-project', title: m.project || '未分类' },
                       m.project || '未分类',
                     ),
-                    m.dirty && h('span', { className: 'dg-small dg-muted' }, '未同步'),
+                    m.dirty
+                      ? h(
+                          'span',
+                          { className: 'dg-small dg-muted' },
+                          localFirst ? '未保存' : '未同步',
+                        )
+                      : localFirst && m.sync_status !== 'synced'
+                        ? h(
+                            'span',
+                            { className: 'dg-small dg-muted' },
+                            m.sync_status === 'conflict'
+                              ? '冲突副本'
+                              : m.sync_status === 'pending'
+                                ? '待同步'
+                                : '仅本机',
+                          )
+                        : null,
                   ),
                   h('h3', { className: 'dg-memo-tile-title' }, memoTitle(m.content)),
                   h('p', { className: 'dg-memo-tile-excerpt' }, memoExcerpt(m.content)),
@@ -547,11 +676,29 @@ export function createMemosView(React: any, ui: any) {
                     'div',
                     { className: 'dg-memo-tile-foot' },
                     h('time', null, m.id ? dateLabel(m.updated_at) : '本机新草稿'),
+                    m.plan &&
+                      h(
+                        Badge,
+                        { tone: 'muted' },
+                        m.sync_status === 'conflict'
+                          ? '定时 · 待核对'
+                          : m.sync_status === 'pending' || m.sync_status === 'local'
+                            ? '定时 · 等待同步'
+                            : !m.active || !m.plan.enabled
+                              ? '定时 · 已暂停'
+                              : m.next_run_at
+                                ? '定时 · 已设置'
+                                : ['pending', 'leased'].includes(m.dispatch?.status)
+                                  ? '定时 · 等待设备接收'
+                                  : '定时 · 已触发',
+                      ),
                     m.dispatch &&
                       h(
                         Badge,
                         { tone: m.dispatch.status === 'accepted' ? 'good' : 'warning' },
-                        deliveryLabels[m.dispatch.status] || '等待确认',
+                        m.dispatch.local_pending
+                          ? '指令等待同步'
+                          : deliveryLabels[m.dispatch.status] || '等待确认',
                       ),
                   ),
                 ),
@@ -585,8 +732,22 @@ export function createMemosView(React: any, ui: any) {
           { className: 'dg-memo-grid-footer' },
           h(
             'span',
-            { role: 'status' },
-            filtered.length + ' 条显示 · ' + items.length + (cursor ? '+ 条已加载' : ' 条在线记录'),
+            { role: 'status', title: syncState?.error || undefined },
+            filtered.length +
+              ' 条显示 · ' +
+              items.length +
+              (cursor ? '+ 条已加载' : localFirst ? ' 条本机记录' : ' 条在线记录') +
+              (localFirst
+                ? !status.loggedIn
+                  ? ' · 未登录，保存在本机'
+                  : syncState?.phase === 'offline'
+                    ? ' · 暂未连接，内容保存在本机'
+                    : syncState?.phase === 'needs-review'
+                      ? ' · 同步需要核对'
+                      : syncState?.phase === 'syncing'
+                        ? ' · 正在同步'
+                        : ' · 自动同步已开启'
+                : ''),
           ),
           cursor &&
             h(
@@ -671,7 +832,9 @@ export function createMemosView(React: any, ui: any) {
                       '新建备忘录',
                     ),
                   },
-                  '记录文字或链接，保存后就能在其他设备继续，也可以交给你的电脑处理。',
+                  localFirst
+                    ? '记录文字或链接，先保存到本机；连接后可在其他设备继续。'
+                    : '记录文字或链接，保存后就能在其他设备继续，也可以交给你的电脑处理。',
                 )
               : h(
                   React.Fragment,
@@ -719,19 +882,23 @@ export function createMemosView(React: any, ui: any) {
                       memo.id &&
                         h(Button, {
                           icon: 'refresh',
-                          'aria-label': '重新读取服务器内容',
-                          title: '重新读取服务器内容',
-                          disabled: busy || !!pending,
+                          'aria-label': localFirst ? '重新读取已保存内容' : '重新读取服务器内容',
+                          title: localFirst ? '重新读取已保存内容' : '重新读取服务器内容',
+                          disabled: busy || (!localFirst && !!pending),
                           onClick: () =>
                             confirmAction(
-                              '重新读取服务器内容？',
-                              '服务器当前内容将替换此处的本机编辑草稿。请先复制需要保留的文字；此操作不会向服务器写入。',
+                              localFirst ? '重新读取已保存内容？' : '重新读取服务器内容？',
+                              localFirst
+                                ? '当前保存的内容会替换编辑草稿。请先复制需要保留的文字；此操作不会修改备忘录。'
+                                : '服务器当前内容将替换此处的本机编辑草稿。请先复制需要保留的文字；此操作不会向服务器写入。',
                               async () => {
                                 storeDraft({
                                   ...(await control('get', { id: memo.id })),
                                   dirty: false,
                                 });
-                                notify('已读取服务器当前内容');
+                                notify(
+                                  localFirst ? '已读取本机保存的内容' : '已读取服务器当前内容',
+                                );
                               },
                               '重新读取',
                             ),
@@ -740,7 +907,7 @@ export function createMemosView(React: any, ui: any) {
                         h(Button, {
                           icon: 'trash',
                           'aria-label': '删除备忘录',
-                          disabled: busy || !!pending,
+                          disabled: busy || (!localFirst && !!pending),
                           onClick: () => void run(remove),
                         }),
                       h(
@@ -750,9 +917,11 @@ export function createMemosView(React: any, ui: any) {
                           icon: 'check',
                           disabled:
                             busy ||
-                            !!pending ||
+                            (!localFirst && !!pending) ||
+                            !!memo.legacyConflict ||
                             !memo.content.trim() ||
                             (!memo.id &&
+                              !memo.planDraft &&
                               !!memo.instruction?.trim() &&
                               (!memo.destination || !memo.active)),
                           onClick: () => void run(save),
@@ -885,7 +1054,20 @@ export function createMemosView(React: any, ui: any) {
                             onChange: (e: any) => update({ content: e.target.value }),
                           }),
                     ),
+                    memo.legacyConflict &&
+                      h(
+                        'p',
+                        { className: 'dg-notice', role: 'alert' },
+                        '旧草稿基于不同的线上版本。请先复制需要保留的内容，再重新读取并核对。',
+                      ),
+                    memo.sync_status === 'conflict' &&
+                      h(
+                        'p',
+                        { className: 'dg-notice', role: 'status' },
+                        '这是同步冲突时保留的本机副本，不会自动覆盖或上传；请与原记录核对。',
+                      ),
                     !memo.id &&
+                      !(memo.planEdited ? memo.planDraft : memo.plan) &&
                       h(
                         'section',
                         { className: 'dg-dispatch' },
@@ -935,7 +1117,12 @@ export function createMemosView(React: any, ui: any) {
                                   h(
                                     'option',
                                     { key: d.id, value: d.id },
-                                    d.name + (d.online ? ' · 在线' : ' · 离线，待上线后执行'),
+                                    d.name +
+                                      (d.online === true
+                                        ? ' · 在线'
+                                        : d.online === false
+                                          ? ' · 离线，待上线后执行'
+                                          : ' · 状态未知'),
                                   ),
                                 ),
                             ),
@@ -946,8 +1133,10 @@ export function createMemosView(React: any, ui: any) {
                             ),
                           ),
                       ),
+                    scheduleForm(React, ui, memo, devices, busy, update),
                     memo.id &&
                       !memo.dispatch &&
+                      !memo.plan &&
                       h(
                         'section',
                         { className: 'dg-dispatch' },
@@ -974,14 +1163,22 @@ export function createMemosView(React: any, ui: any) {
                           h(
                             Badge,
                             { tone: memo.dispatch.status === 'accepted' ? 'good' : 'warning' },
-                            deliveryLabels[memo.dispatch.status],
+                            memo.dispatch.local_pending
+                              ? memo.sync_status === 'conflict'
+                                ? '冲突指令待核对'
+                                : '指令等待同步'
+                              : deliveryLabels[memo.dispatch.status],
                           ),
                         ),
                         h('p', { className: 'dg-small' }, memo.dispatch.instruction),
                         h(
                           'p',
                           { className: 'dg-small dg-muted' },
-                          '这条指令已提交，不能在此改写。修改备忘录不会改变本次投递，也不会再次发送。',
+                          memo.sync_status === 'conflict'
+                            ? '冲突副本中的指令不会自动发送，请先核对原记录。'
+                            : memo.dispatch.local_pending
+                              ? '指令保存在本机，联网同步后才会发送到目标设备。'
+                              : '这条指令已提交，不能在此改写。修改备忘录不会改变本次投递，也不会再次发送。',
                         ),
                         h(
                           'p',
@@ -1007,9 +1204,19 @@ export function createMemosView(React: any, ui: any) {
                       !localSaved
                         ? '草稿未能保存在本机'
                         : memo.dirty
-                          ? '草稿已保存在本机 · 尚未同步'
+                          ? localFirst
+                            ? '草稿已保存在本机 · 尚未提交'
+                            : '草稿已保存在本机 · 尚未同步'
                           : memo.id
-                            ? '已保存到 DogO'
+                            ? !localFirst
+                              ? '已保存到 DogO'
+                              : memo.sync_status === 'conflict'
+                                ? '冲突副本 · 仅保存在本机'
+                                : memo.sync_status === 'synced'
+                                  ? '已保存并同步'
+                                  : memo.sync_status === 'pending'
+                                    ? '已保存到本机 · 等待同步'
+                                    : '已保存到本机'
                             : '新备忘录',
                     ),
                     h(

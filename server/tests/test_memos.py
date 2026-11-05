@@ -3,8 +3,8 @@ from threading import Barrier
 
 from conftest import device, login, queued_memo, receipt
 
-from dogo_server.errors import ServiceError
-from dogo_server.schemas import MemoCreate, MemoDelete
+from dogo_server.application.commands import DispatchInstruction, MemoCreate, MemoDelete
+from dogo_server.domain.errors import DomainError
 
 
 def test_create_is_atomic_and_idempotent(client, headers, app):
@@ -17,7 +17,7 @@ def test_create_is_atomic_and_idempotent(client, headers, app):
     assert first.status_code == second.status_code == 201
     assert first.json() == second.json()
     assert len(client.get("/api/memos", headers=headers).json()["items"]) == 1
-    with app.state.service.db.connect() as db:
+    with app.state.container.database.connect() as db:
         assert db.execute("SELECT count(*) FROM dispatches").fetchone()[0] == 1
     assert queued_memo(client, headers, target["id"], content="different").status_code == 409
 
@@ -52,7 +52,7 @@ def test_snapshot_and_edit_do_not_change_or_redispatch_work(client, headers, app
         len(client.get("/api/memos", headers=headers, params={"project": "新名称"}).json()["items"])
         == 1
     )
-    with app.state.service.db.connect() as db:
+    with app.state.container.database.connect() as db:
         assert db.execute("SELECT count(*) FROM dispatches").fetchone()[0] == 1
 
 
@@ -100,7 +100,7 @@ def test_delete_does_not_recall_sent_work_even_after_receipt_timeout(client, hea
         first = client.request("DELETE", path, headers=headers, json={"revision": 1})
         assert first.status_code == 409
         assert first.json()["error"]["code"] == "dispatch_in_flight"
-        app.state.service.clock = lambda: delivery["lease_until"] + 1
+        app.state.container.deliveries.clock = lambda: delivery["lease_until"] + 1
         retried = ws.receive_json()["dispatch"]
         assert (
             client.request("DELETE", path, headers=headers, json={"revision": 1}).status_code == 409
@@ -167,20 +167,20 @@ def test_append_is_versioned_and_retry_does_not_duplicate_entry(client, headers)
 
 def test_concurrent_create_uses_business_record_for_deduplication(app, headers, client):
     target, _ = device(client, headers)
-    principal = app.state.auth.bearer(headers["Authorization"])
+    principal = app.state.container.identity.bearer(headers["Authorization"])
     data = MemoCreate(
         request_id="concurrent-create",
         content="one memo",
-        dispatch={"instruction": "process", "target_device_id": target["id"]},
+        dispatch=DispatchInstruction(instruction="process", target_device_id=target["id"]),
     )
     with ThreadPoolExecutor(max_workers=6) as executor:
         results = list(
-            executor.map(lambda _: app.state.service.create_memo(principal, data), range(6))
+            executor.map(lambda _: app.state.container.memos.create_memo(principal, data), range(6))
         )
     assert len({result["id"] for result in results}) == 1
     assert len({result["dispatch"]["id"] for result in results}) == 1
     assert len(client.get("/api/memos", headers=headers).json()["items"]) == 1
-    with app.state.service.db.connect() as db:
+    with app.state.container.database.connect() as db:
         assert db.execute("SELECT count(*) FROM dispatches").fetchone()[0] == 1
 
 
@@ -207,31 +207,31 @@ def test_delayed_create_retry_returns_current_records_without_recreating(client,
 def test_delete_and_send_race_has_one_consistent_outcome(client, headers, app):
     target, bound = device(client, headers)
     memo = queued_memo(client, headers, target["id"]).json()
-    owner = app.state.auth.bearer(headers["Authorization"])
-    consumer = app.state.auth.bearer(bound["Authorization"])
+    owner = app.state.container.identity.bearer(headers["Authorization"])
+    consumer = app.state.container.identity.bearer(bound["Authorization"])
     start = Barrier(2)
 
     def delete():
         start.wait(timeout=5)
         try:
-            return app.state.service.delete_memo(owner, memo["id"], MemoDelete(revision=1))
-        except ServiceError as error:
+            return app.state.container.memos.delete_memo(owner, memo["id"], MemoDelete(revision=1))
+        except DomainError as error:
             return error
 
     def send():
         start.wait(timeout=5)
-        return app.state.service.next_delivery(consumer)
+        return app.state.container.deliveries.next_delivery(consumer)
 
     with ThreadPoolExecutor(max_workers=2) as pool:
         deletion, sending = pool.submit(delete), pool.submit(send)
         deleted, delivered = deletion.result(), sending.result()
     current = client.get(f"/api/memos/{memo['id']}", headers=headers).json()
     if delivered is None:
-        assert not isinstance(deleted, ServiceError)
+        assert not isinstance(deleted, DomainError)
         assert current["deleted_at"] is not None
         assert current["dispatch"]["status"] == "cancelled"
     else:
-        assert isinstance(deleted, ServiceError)
+        assert isinstance(deleted, DomainError)
         assert deleted.code == "dispatch_in_flight"
         assert current["deleted_at"] is None
         assert current["dispatch"]["status"] == "leased"

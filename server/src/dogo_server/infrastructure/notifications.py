@@ -2,7 +2,7 @@ import asyncio
 import logging
 from contextlib import asynccontextmanager, suppress
 
-from .errors import ServiceError
+from ..domain.errors import DomainError
 
 logger = logging.getLogger(__name__)
 
@@ -33,7 +33,7 @@ class Notifications:
     async def subscribe(self, account_id: str, device_id: str):
         key = (account_id, device_id)
         if key in self.connections:
-            raise ServiceError(409, "device_connected", "Device already has an active connection")
+            raise DomainError("device_connected", "Device already has an active connection")
         queue = asyncio.Queue(maxsize=1)
         self.connections[key] = queue
         try:
@@ -41,20 +41,25 @@ class Notifications:
         finally:
             self.connections.pop(key, None)
 
-    async def sweep(self, service) -> None:
+    async def sweep(self, deliveries, scheduler=None) -> None:
         while True:
-            await asyncio.sleep(self.interval)
+            if scheduler is not None:
+                try:
+                    await asyncio.to_thread(scheduler.tick)
+                except Exception:
+                    logger.exception("Schedule scan failed; next sweep will retry")
             for key in tuple(self.connections):
                 try:
-                    if await asyncio.to_thread(service.has_pending, *key):
+                    if await asyncio.to_thread(deliveries.has_pending, *key):
                         self._signal(key)
                 except Exception:
                     logger.exception("Pending delivery check failed; next sweep will retry")
+            await asyncio.sleep(self.interval)
 
     @asynccontextmanager
-    async def run(self, service):
+    async def run(self, deliveries, scheduler=None):
         self.loop = asyncio.get_running_loop()
-        task = asyncio.create_task(self.sweep(service), name="dogo-delivery-sweep")
+        task = asyncio.create_task(self.sweep(deliveries, scheduler), name="dogo-delivery-sweep")
         try:
             yield
         finally:

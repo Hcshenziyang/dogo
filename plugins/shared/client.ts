@@ -16,11 +16,13 @@ export function registerClient(kind: 'memos' | 'devices', title: string) {
       const Content = kind === 'memos' ? createMemosView(React, ui) : createDevicesView(React, ui);
       function Panel({ control }: { control: Control }) {
         const [status, setStatus] = React.useState(null as Dict | null);
+        const [ready, setReady] = React.useState(false);
         const [devices, setDevices] = React.useState([] as Dict[]);
         const [busy, setBusy] = React.useState(false),
           [error, setError] = React.useState('');
         const [notice, setNotice] = React.useState(''),
           [settings, setSettings] = React.useState(false);
+        const [showLogin, setShowLogin] = React.useState(false);
         const [confirmation, setConfirmation] = React.useState(null as any);
         const [login, setLogin] = React.useState(() => ({
           server: '',
@@ -52,6 +54,17 @@ export function registerClient(kind: 'memos' | 'devices', title: string) {
           const sequence = ++refreshSequence.current;
           const next = await control('status');
           if (!mounted.current || sequence !== refreshSequence.current) return next;
+          if (kind === 'memos') {
+            setStatus(next);
+            void control('devices')
+              .then((list) => {
+                if (mounted.current && sequence === refreshSequence.current) setDevices(list);
+              })
+              .catch(() => {
+                if (mounted.current && sequence === refreshSequence.current) setDevices([]);
+              });
+            return next;
+          }
           try {
             if (next.loggedIn) {
               const list = await control('devices');
@@ -64,7 +77,9 @@ export function registerClient(kind: 'memos' | 'devices', title: string) {
         };
         React.useEffect(() => {
           mounted.current = true;
-          void run(refresh);
+          void run(refresh).finally(() => {
+            if (mounted.current) setReady(true);
+          });
           return () => {
             mounted.current = false;
           };
@@ -101,6 +116,10 @@ export function registerClient(kind: 'memos' | 'devices', title: string) {
           return () => clearTimeout(timer);
         }, [notice]);
         const openSettings = () => {
+          if (kind === 'memos' && !status?.loggedIn) {
+            setShowLogin(true);
+            return;
+          }
           setCwd(status?.consumer?.cwd || '');
           setSettings(true);
         };
@@ -175,6 +194,7 @@ export function registerClient(kind: 'memos' | 'devices', title: string) {
         );
         const settingsView =
           settings &&
+          status?.loggedIn &&
           !confirmation &&
           h(
             Dialog,
@@ -195,7 +215,11 @@ export function registerClient(kind: 'memos' | 'devices', title: string) {
                 ),
                 h('div', null, h('strong', null, status.username), h('small', null, status.server)),
               ),
-              h('p', null, '两个 DogO 插件共用此账户。备忘录保存到你的服务，会话保留在执行电脑。'),
+              h(
+                'p',
+                null,
+                '两个 DogO 插件共用此账户。备忘录先保存在本机，连接后同步到服务；会话保留在执行电脑。',
+              ),
               h(
                 Button,
                 {
@@ -302,11 +326,18 @@ export function registerClient(kind: 'memos' | 'devices', title: string) {
                     setLogin((old: Dict) => ({ ...old, password: '' }));
                   }
                   await refresh();
+                  if (kind === 'memos') setShowLogin(false);
                 });
               },
             },
             h('h3', null, '连接 DogO'),
             h('p', null, '使用你在服务端创建的账户登录'),
+            kind === 'memos' &&
+              h(
+                Button,
+                { variant: 'secondary', disabled: busy, onClick: () => setShowLogin(false) },
+                '返回本机备忘录',
+              ),
             h(Field, {
               label: 'DogO 服务地址',
               type: 'url',
@@ -375,11 +406,14 @@ export function registerClient(kind: 'memos' | 'devices', title: string) {
               h(Icon, { name: 'check', size: 16 }),
               h('span', null, notice),
             ),
-          !status
+          !status || !ready
             ? h('div', { className: 'dg-empty', role: 'status' }, '正在连接 DogO…')
-            : status.loggedIn
+            : (kind === 'memos' && !showLogin) || status.loggedIn
               ? h(Content, {
-                  key: status.server + '/' + status.username,
+                  key:
+                    kind === 'memos'
+                      ? 'memo/' + status.memoIdentity
+                      : status.server + '/' + status.username,
                   control,
                   status,
                   devices,

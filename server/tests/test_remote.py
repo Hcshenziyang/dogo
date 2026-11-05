@@ -4,9 +4,9 @@ from concurrent.futures import ThreadPoolExecutor
 import pytest
 from conftest import device, login
 
-from dogo_server.errors import ServiceError
-from dogo_server.remote import RemoteRelay
-from dogo_server.schemas import RemoteResult
+from dogo_server.application.remote_ports import RemoteResponse
+from dogo_server.domain.errors import DomainError
+from dogo_server.infrastructure.remote import RemoteRelay
 
 
 @pytest.mark.parametrize("method", ["list", "workspaces", "models", "selectModel"])
@@ -65,19 +65,19 @@ def test_broker_disconnect_wrong_peer_and_bounded_pending():
             task = asyncio.create_task(broker.call("account", "host", {"method": "list"}))
             await asyncio.sleep(0)
             frame = next(broker.drain("account", "host"))
-            with pytest.raises(ServiceError, match="another device"):
+            with pytest.raises(DomainError, match="another device"):
                 broker.resolve(
                     "other-account",
                     "host",
-                    RemoteResult(type="remote.result", id=frame["id"], ok=True),
+                    RemoteResponse(type="remote.result", id=frame["id"], ok=True),
                 )
-        with pytest.raises(ServiceError, match="disconnected"):
+        with pytest.raises(DomainError, match="disconnected"):
             await task
         assert not broker.pending
         async with broker.attach("account", "host"):
             tasks = [asyncio.create_task(broker.call("account", "host", {})) for _ in range(16)]
             await asyncio.sleep(0)
-            with pytest.raises(ServiceError) as error:
+            with pytest.raises(DomainError) as error:
                 await broker.call("account", "host", {})
             assert error.value.code == "remote_busy"
             for task in tasks:

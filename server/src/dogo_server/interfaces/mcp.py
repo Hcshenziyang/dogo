@@ -1,40 +1,46 @@
 import asyncio
-from typing import Any
+from typing import Any, Protocol
 
 from mcp.server.fastmcp import Context, FastMCP
 from mcp.server.fastmcp.exceptions import ToolError
 from mcp.server.transport_security import TransportSecuritySettings
 from mcp.types import ToolAnnotations
-from starlette.responses import JSONResponse
 
-from .errors import ServiceError
+from ..application.identity import IdentityService
+from ..config import Settings
+from ..domain.errors import DomainError
+from . import commands
+from .errors import error_response
 from .schemas import MemoAppend, MemoCreate, MemoDelete, MemoUpdate
 
 
+class MCPDependencies(Protocol):
+    identity: IdentityService
+    memos: Any
+    settings: Settings
+
+
 class MCPAuthentication:
-    def __init__(self, app, auth):
+    def __init__(self, app, container: MCPDependencies):
         self.app = app
-        self.auth = auth
+        self.container = container
 
     async def __call__(self, scope, receive, send):
         if scope["type"] == "http":
             headers = dict(scope["headers"])
             try:
                 scope["dogo_principal"] = await asyncio.to_thread(
-                    self.auth.bearer, headers.get(b"authorization", b"").decode()
+                    self.container.identity.bearer, headers.get(b"authorization", b"").decode()
                 )
-            except ServiceError as error:
-                response = JSONResponse(
-                    {"error": {"code": error.code, "message": error.message}},
-                    status_code=error.status,
-                    headers={"WWW-Authenticate": "Bearer"},
-                )
+            except DomainError as error:
+                response = error_response(error)
                 await response(scope, receive, send)
                 return
         await self.app(scope, receive, send)
 
 
-def create_mcp(service, settings) -> FastMCP:
+def create_mcp(container: MCPDependencies) -> FastMCP:
+    settings = container.settings
     server = FastMCP(
         "DogO",
         instructions="Manage personal memos. Saving content does not dispatch work unless explicitly requested.",
@@ -51,13 +57,17 @@ def create_mcp(service, settings) -> FastMCP:
     read = ToolAnnotations(readOnlyHint=True, openWorldHint=False)
     write = ToolAnnotations(idempotentHint=True, openWorldHint=False)
 
-    async def call(ctx, method, *args, **kwargs):
+    async def call(ctx, service, method, *args, **kwargs):
         request = ctx.request_context.request
         if request is None or "dogo_principal" not in request.scope:
             raise ToolError("authentication_required")
         try:
-            return await asyncio.to_thread(method, request.scope["dogo_principal"], *args, **kwargs)
-        except ServiceError as error:
+            # Resolve the same container used by HTTP rather than binding a second service graph.
+            dependency = getattr(container, service)
+            return await asyncio.to_thread(
+                getattr(dependency, method), request.scope["dogo_principal"], *args, **kwargs
+            )
+        except DomainError as error:
             raise ToolError(f"{error.code}: {error.message}") from None
 
     @server.tool(annotations=read)
@@ -69,36 +79,36 @@ def create_mcp(service, settings) -> FastMCP:
         include_deleted: bool = False,
     ) -> dict[str, Any]:
         """List this account's memos; continue with next_cursor when present."""
-        return await call(ctx, service.list_memos, project, cursor, limit, include_deleted)
+        return await call(ctx, "memos", "list_memos", project, cursor, limit, include_deleted)
 
     @server.tool(annotations=read)
     async def get_memo(memo_id: str, ctx: Context) -> dict[str, Any]:
         """Read a memo and its current revision, including its deletion marker."""
-        return await call(ctx, service.get_memo, memo_id)
+        return await call(ctx, "memos", "get_memo", memo_id)
 
     @server.tool(annotations=write)
     async def create_memo(data: MemoCreate, ctx: Context) -> dict[str, Any]:
         """Save content. Include dispatch only when explicitly asked to execute it; reuse request_id on retry."""
-        return await call(ctx, service.create_memo, data)
+        return await call(ctx, "memos", "create_memo", commands.memo_create(data))
 
     @server.tool(annotations=write)
     async def update_memo(memo_id: str, data: MemoUpdate, ctx: Context) -> dict[str, Any]:
         """Replace memo fields using the revision you read. This never re-dispatches prior work."""
-        return await call(ctx, service.update_memo, memo_id, data)
+        return await call(ctx, "memos", "update_memo", memo_id, commands.memo_update(data))
 
     @server.tool(annotations=ToolAnnotations(destructiveHint=True, idempotentHint=True))
     async def delete_memo(memo_id: str, data: MemoDelete, ctx: Context) -> dict[str, Any]:
         """Soft-delete a memo and cancel unsent work. In-flight delivery blocks deletion; accepted DSH work continues."""
-        return await call(ctx, service.delete_memo, memo_id, data)
+        return await call(ctx, "memos", "delete_memo", memo_id, commands.memo_delete(data))
 
     @server.tool(annotations=write)
     async def append_memo(memo_id: str, data: MemoAppend, ctx: Context) -> dict[str, Any]:
         """Append exact text once at a known revision. On conflict, read and reconcile; never blindly rebase."""
-        return await call(ctx, service.append_memo, memo_id, data)
+        return await call(ctx, "memos", "append_memo", memo_id, commands.memo_append(data))
 
     @server.tool(annotations=read)
     async def list_devices(ctx: Context) -> list[dict[str, Any]]:
         """List registered devices. Active is authorization state, not online presence."""
-        return await call(ctx, service.list_devices)
+        return await call(ctx, "identity", "list_devices")
 
     return server

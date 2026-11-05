@@ -2,11 +2,11 @@ import sqlite3
 
 import pytest
 
-from dogo_server.db import Database
+from dogo_server.infrastructure.sqlite.database import Database
 
 
 def test_database_contains_only_four_business_tables(app):
-    with app.state.service.db.connect() as db:
+    with app.state.container.database.connect() as db:
         tables = {row[0] for row in db.execute("SELECT name FROM sqlite_master WHERE type='table'")}
     assert tables == {"accounts", "devices", "memos", "dispatches"}
 

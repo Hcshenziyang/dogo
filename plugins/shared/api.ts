@@ -120,6 +120,18 @@ export class Api {
       epoch = this.generation;
     if (!state) throw new ApiError('login_required', '请先登录 DogO。', 401);
     this.refreshFlight = (async () => {
+      // A failed probe has not sent the single-use refresh token. Preserve it while offline.
+      try {
+        const response = await this.fetcher(state.server + '/api/auth/me', {
+          method: 'HEAD',
+          redirect: 'error',
+          signal: AbortSignal.timeout(4000),
+        });
+        if (response.status >= 500 || response.status === 429) throw Error('server unavailable');
+      } catch {
+        throw new ApiError('offline', '暂时无法连接 DogO，登录状态已保留。');
+      }
+      if (epoch !== this.generation) throw Error('登录状态已变化。');
       try {
         const tokens = await this.raw<Tokens>(state.server, '/api/auth/refresh', 'POST', {
           refresh_token: state.tokens.refresh_token,

@@ -146,3 +146,44 @@ def test_real_http_websocket_mcp_and_process_restart(app, settings, tmp_path):
         state = http.get(f"/api/memos/{result['id']}", headers=headers).json()
         assert state["dispatch"]["status"] == "accepted"
         assert state["dispatch"]["native_session_id"] == "synthetic-session"
+
+
+@pytest.mark.timeout(30)
+def test_timed_memo_survives_server_restart_and_delivers_over_websocket(app, settings, tmp_path):
+    with running_server(settings, tmp_path) as (http, port):
+        headers = {"Authorization": "Bearer " + login(http)["access_token"]}
+        target, bound = device(http, headers)
+        response = http.post(
+            "/api/memos",
+            headers=headers,
+            json={
+                "request_id": "network-scheduled",
+                "content": "离线定时记录",
+                "plan": {
+                    "mode": "once",
+                    "run_at": int(time.time() * 1000) - 1000,
+                    "instruction": "整理一次",
+                    "target_device_id": target["id"],
+                },
+            },
+        )
+        assert response.status_code == 201, response.text
+        memo_id = response.json()["id"]
+    with running_server(settings, tmp_path) as (http, port):
+        with connect(
+            f"ws://127.0.0.1:{port}/api/device/connect",
+            additional_headers=bound,
+            proxy=None,
+            open_timeout=5,
+            close_timeout=2,
+        ) as ws:
+            assert json.loads(ws.recv(timeout=5))["type"] == "connected"
+            frame = json.loads(ws.recv(timeout=5))
+            assert frame["type"] == "dispatch"
+            dispatch = frame["dispatch"]
+            assert dispatch["content_snapshot"] == "离线定时记录"
+            ws.send(json.dumps(receipt(dispatch)))
+            assert json.loads(ws.recv(timeout=5))["type"] == "dispatch.acknowledged"
+        memo = http.get("/api/memos/" + memo_id, headers=headers).json()
+        assert memo["dispatch"]["status"] == "accepted"
+        assert memo["next_run_at"] is None

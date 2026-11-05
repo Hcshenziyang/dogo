@@ -4,7 +4,7 @@ import { createUI } from '../shared/ui.js';
 import { draftKey } from '../shared/presentation.js';
 
 // Deterministic hook/element harness. These are component-state tests, not browser layout tests.
-function fixture() {
+function fixture(options: { localFirst?: boolean } = {}) {
   const state: any[] = [],
     effects: any[] = [],
     jobs: Promise<any>[] = [];
@@ -55,6 +55,9 @@ function fixture() {
       tags: [],
       active: true,
       revision: 4,
+      ...(options.localFirst
+        ? { remote_id: 'server-a', remote_revision: 4, sync_status: 'synced' }
+        : {}),
       updated_at: 30,
     },
     {
@@ -99,7 +102,14 @@ function fixture() {
         records = records.filter((m) => m.id !== data.id);
         return;
       }
-      const result = { ...data.data, id: data.id || 'created', revision: 5, updated_at: 40 };
+      const prior = data.id ? records.find((m) => m.id === data.id) : undefined;
+      const result = {
+        ...prior,
+        ...data.data,
+        id: data.id || 'created',
+        revision: 5,
+        updated_at: 40,
+      };
       records = [result, ...records.filter((m) => m.id !== result.id)];
       return result;
     }
@@ -109,7 +119,14 @@ function fixture() {
   });
   const props: any = {
     control,
-    status: { server: 'https://fixture.test', username: 'test' },
+    status: options.localFirst
+      ? {
+          server: 'https://fixture.test',
+          username: 'test',
+          loggedIn: true,
+          memoIdentity: 'account-a',
+        }
+      : { server: 'https://fixture.test', username: 'test' },
     devices: [{ id: 'device', name: '测试电脑', kind: 'desktop', active: true }],
     busy: false,
     setError: vi.fn(),
@@ -164,6 +181,10 @@ function fixture() {
       fail = true;
     },
     pending: () => pending,
+    setPending: (value: any) => {
+      pending = value;
+    },
+    dispose: () => state.forEach((value) => value?.cleanup?.()),
     tiles: () => all((n: any) => n.props.className === 'dg-memo-tile'),
     click: async (name: string) => {
       named(name).props.onClick();
@@ -299,6 +320,44 @@ describe('formal memo grid flows', () => {
     expect(f.named('执行指令')).toBeUndefined();
     expect(f.named('保存并发送')).toBeUndefined();
   });
+  it('creates and edits a scheduled plan while retaining the original memo revision', async () => {
+    const f = fixture();
+    await f.flush();
+    await f.click('新建备忘');
+    await f.edit('备忘录内容', '定时记录');
+    await f.click('添加定时任务');
+    await f.edit('定时指令', '整理本周记录');
+    await f.edit('定时目标电脑', 'device');
+    await f.edit('执行频率', 'weekly');
+    await f.edit('星期', '4');
+    await f.edit('执行时刻', '08:30');
+    await f.click('保存');
+    expect(f.control).toHaveBeenCalledWith(
+      'submit',
+      expect.objectContaining({
+        method: 'create',
+        data: expect.objectContaining({
+          content: '定时记录',
+          plan: expect.objectContaining({
+            mode: 'weekly',
+            weekday: 4,
+            time: '08:30',
+            instruction: '整理本周记录',
+            target_device_id: 'device',
+          }),
+        }),
+      }),
+    );
+    await f.edit('备忘录内容', '修改正文');
+    await f.click('保存');
+    const calls = f.control.mock.calls.filter((c: any[]) => c[0] === 'submit');
+    expect(calls.at(-1)![1].data).not.toHaveProperty('plan');
+    await f.click('移除计划');
+    await f.click('保存');
+    const latest = f.control.mock.calls.filter((c: any[]) => c[0] === 'submit').at(-1)![1];
+    expect(latest.data.plan).toBeNull();
+    expect(latest.data.revision).toBe(5);
+  });
   it('preserves single-click delete with original revision and does not ask for confirmation', async () => {
     const f = fixture();
     await f.flush();
@@ -370,5 +429,70 @@ describe('formal memo grid flows', () => {
         }),
       }),
     );
+  });
+  it('distinguishes online, offline and unknown target device states', async () => {
+    const f = fixture({ localFirst: true });
+    f.props.devices = [
+      { id: 'one', name: '在线电脑', kind: 'desktop', active: true, online: true },
+      { id: 'two', name: '离线电脑', kind: 'desktop', active: true, online: false },
+      { id: 'three', name: '未知电脑', kind: 'desktop', active: true },
+    ];
+    await f.flush();
+    await f.click('新建备忘');
+    await f.click('添加指令');
+    const choices = f.all((n: any) => n.type === 'option').map((n: any) => f.text(n));
+    expect(choices).toContain('在线电脑 · 在线');
+    expect(choices).toContain('离线电脑 · 离线，待上线后执行');
+    expect(choices).toContain('未知电脑 · 状态未知');
+  });
+  it('allows local editing while an older online write is awaiting review', async () => {
+    const f = fixture({ localFirst: true });
+    try {
+      await f.flush();
+      f.setPending({
+        method: 'update',
+        id: 'old-remote',
+        data: { revision: 1, content: '待核对' },
+      });
+      await f.click('刷新备忘录');
+      await f.click('编辑：第二条');
+      await f.edit('备忘录内容', '本机仍可编辑');
+      expect(f.named('保存').props.disabled).toBe(false);
+      await f.click('保存');
+      expect(f.control).toHaveBeenCalledWith(
+        'submit',
+        expect.objectContaining({ data: expect.objectContaining({ content: '本机仍可编辑' }) }),
+      );
+      expect(f.props.notify).toHaveBeenCalledWith('已保存到本机，等待同步');
+    } finally {
+      f.dispose();
+    }
+  });
+  it('preserves an old server draft and requires a re-read when its base version differs', async () => {
+    localStorage.setItem(
+      draftKey('https://fixture.test/test', 'server-a'),
+      JSON.stringify({
+        id: 'server-a',
+        revision: 2,
+        content: '旧草稿内容',
+        dirty: true,
+        project: '',
+        category: '',
+        tags: [],
+        active: true,
+      }),
+    );
+    const f = fixture({ localFirst: true });
+    try {
+      await f.flush();
+      await f.click('编辑：旧草稿内容');
+      expect(f.named('备忘录内容').props.value).toBe('旧草稿内容');
+      expect(f.named('保存').props.disabled).toBe(true);
+      expect(
+        f.all((n: any) => n.props.role === 'alert' && f.text(n).includes('旧草稿基于不同')),
+      ).toHaveLength(1);
+    } finally {
+      f.dispose();
+    }
   });
 });

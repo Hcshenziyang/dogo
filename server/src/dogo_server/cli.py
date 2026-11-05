@@ -3,10 +3,9 @@ import getpass
 
 import uvicorn
 
-from .auth import Auth
+from .bootstrap import create_container
 from .config import Settings
-from .db import Database
-from .errors import ServiceError
+from .domain.errors import DomainError
 
 
 def main() -> None:
@@ -31,11 +30,9 @@ def main() -> None:
     password = getpass.getpass("Password (at least 10 characters): ")
     if password != getpass.getpass("Confirm password: "):
         parser.error("Passwords do not match")
-    settings = Settings.from_env()
-    db = Database(settings.data_dir / "dogo.sqlite")
-    db.initialize()
+    container = create_container(Settings.from_env())
     try:
-        result = Auth(db, settings).create_account(args.username, password)
-    except ServiceError as error:
+        result = container.identity.create_account(args.username, password)
+    except DomainError as error:
         parser.error(error.message)
     print(f"Created account: {result['username']}")

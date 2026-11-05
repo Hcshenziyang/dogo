@@ -1,8 +1,5 @@
-import sqlite3
-from contextlib import contextmanager
-from pathlib import Path
+-- Frozen v2 schema from pre-DDD commit 1914ab4.
 
-SCHEMA = """
 CREATE TABLE IF NOT EXISTS accounts (
     id TEXT PRIMARY KEY,
     username TEXT NOT NULL UNIQUE,
@@ -69,39 +66,5 @@ CREATE INDEX IF NOT EXISTS dispatches_delivery
     ON dispatches(account_id, target_device_id, status, lease_until, created_at);
 CREATE INDEX IF NOT EXISTS dispatches_memo
     ON dispatches(account_id, memo_id, created_at, id);
-"""
 
-
-class Database:
-    def __init__(self, path: Path):
-        self.path = path
-
-    def initialize(self) -> None:
-        self.path.parent.mkdir(parents=True, exist_ok=True, mode=0o700)
-        with self.connect() as db:
-            version = db.execute("PRAGMA user_version").fetchone()[0]
-            if version not in (0, 2):
-                raise RuntimeError(
-                    f"Unsupported database schema version: {version}; "
-                    "use a new DOGO_DATA_DIR. Existing data is not migrated or deleted."
-                )
-            db.execute("PRAGMA journal_mode=WAL")
-            db.executescript("BEGIN IMMEDIATE;\n" + SCHEMA + "\nPRAGMA user_version=2;\nCOMMIT;")
-
-    @contextmanager
-    def connect(self, *, write: bool = False):
-        db = sqlite3.connect(self.path, timeout=5, isolation_level=None)
-        db.row_factory = sqlite3.Row
-        db.execute("PRAGMA foreign_keys=ON")
-        try:
-            if write:
-                db.execute("BEGIN IMMEDIATE")
-            yield db
-            if write:
-                db.commit()
-        except BaseException:
-            if write:
-                db.rollback()
-            raise
-        finally:
-            db.close()
+PRAGMA user_version=2;

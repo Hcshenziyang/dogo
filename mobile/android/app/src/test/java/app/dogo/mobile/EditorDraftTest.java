@@ -37,4 +37,40 @@ public class EditorDraftTest {
         assertFalse(payload.optBoolean("active"));
         assertEquals(9, payload.optInt("revision"));
     }
+    @Test public void scheduledWritesFreezeExactPlanAndLeaveOldPlansUnchangedWhenEditingContent() {
+        JSONObject plan = Json.of("id", "plan-id", "mode", "weekly", "enabled", true,
+                "timezone", "Asia/Shanghai", "time", "09:30", "weekday", 2,
+                "instruction", "整理", "target_device_id", "pc");
+        JSONObject memo = Json.of("id", "memo", "revision", 5, "content", "原文", "plan", plan);
+        EditorDraft plain = EditorDraft.forMemo("edit", memo);
+        Json.put(plain.fields(), "content", "新正文");
+        assertFalse(plain.freeze().has("plan"));
+        EditorDraft scheduled = EditorDraft.forMemo("edit", memo);
+        Json.put(scheduled.data, "plan_dirty", true);
+        Json.put(scheduled.data.optJSONObject("schedule"), "instruction", "  整理  \n");
+        JSONObject body = scheduled.freeze();
+        assertEquals("  整理  \n", body.optJSONObject("plan").optString("instruction"));
+        assertEquals("weekly", body.optJSONObject("plan").optString("mode"));
+        assertEquals(2, body.optJSONObject("plan").optInt("weekday"));
+        assertFalse(body.optJSONObject("plan").has("id"));
+        Json.put(scheduled.data.optJSONObject("schedule"), "instruction", "不同内容");
+        assertEquals(body.toString(), scheduled.freeze().toString());
+        EditorDraft removed = EditorDraft.forMemo("edit", memo);
+        Json.put(removed.data, "plan_dirty", true);
+        Json.put(removed.data, "plan_present", false);
+        assertTrue(removed.freeze().has("plan"));
+        assertTrue(removed.freeze().isNull("plan"));
+    }
+    @Test public void oneTimePlanUsesItsTimezoneAndRejectsMissingWallTimes() {
+        JSONObject input = ScheduleDraft.fromPlan(null);
+        Json.put(input, "instruction", "整理");
+        Json.put(input, "target_device_id", "pc");
+        Json.put(input, "run_at_input", "2026-11-03 20:30");
+        assertEquals(java.time.Instant.parse("2026-11-03T12:30:00Z").toEpochMilli(),
+                ScheduleDraft.payload(input).optLong("run_at"));
+        Json.put(input, "timezone", "America/New_York");
+        Json.put(input, "run_at_input", "2026-03-08 02:30");
+        try { ScheduleDraft.payload(input); fail("DST gap must be rejected"); }
+        catch (IllegalArgumentException expected) { assertNotNull(expected.getMessage()); }
+    }
 }

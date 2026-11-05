@@ -3,6 +3,7 @@ import { join } from 'node:path';
 import { z } from 'zod';
 import { Api, accountKey, type Credentials } from './api.js';
 import { Store } from './store.js';
+import { planSchema } from './plan.js';
 import { registerControlRoute } from '../vendor/dsh-remote/control-route.js';
 
 const name = z.string().min(1).max(128);
@@ -21,6 +22,7 @@ export const mutation = z.discriminatedUnion('method', [
         .object({
           ...memoFields,
           request_id: name,
+          plan: planSchema.nullable().optional(),
           dispatch: z
             .object({ instruction: z.string().min(1).max(32000), target_device_id: name })
             .optional(),
@@ -40,6 +42,7 @@ export const mutation = z.discriminatedUnion('method', [
           tags: z.array(z.string().min(1).max(100)).max(30),
           active: z.boolean(),
           revision: z.number().int().positive(),
+          plan: planSchema.nullable().optional(),
         })
         .strict(),
     })
@@ -240,7 +243,11 @@ export async function acquire(
     },
   };
 }
-export function registerControl(ctx: any, route: string, runtime: Runtime) {
+export function registerControl(
+  ctx: any,
+  route: string,
+  runtime: { control(method: string, payload?: any): Promise<unknown> },
+) {
   return registerControlRoute(
     route,
     ctx.connection,

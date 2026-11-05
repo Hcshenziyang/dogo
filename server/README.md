@@ -40,7 +40,7 @@ uv run dogo serve
 
 设备表只保存当前刷新凭据的哈希、到期时间与令牌版本。`GET /api/devices` 列出设备，`DELETE /api/devices/{id}` 禁用设备并撤销凭据；使用账户密码再次登录可重新启用。`device_kind=mobile` 可记录来源；接收指令和回执使用桌面设备 WebSocket。账户与目标设备归属都由服务端校验。
 
-REST 路由和 MCP 工具调用同一个 `Service`，认证共用 `Auth`。MCP 使用官方 Python SDK 的 Streamable HTTP，当前锁定 SDK 支持的协议为 `2025-11-25`；已做官方客户端验证，不代表已通过 DSH 原生接入验收。当前是预配置 Bearer 凭据接入，未实现通用 MCP OAuth 登录 / 自动发现。续期由客户端负责。
+REST 路由和 MCP 工具调用同一组应用服务，认证共用 `IdentityService`，由 `bootstrap.py` 统一装配。MCP 使用官方 Python SDK 的 Streamable HTTP，当前锁定 SDK 支持的协议为 `2025-11-25`；已做官方客户端验证，不代表已通过 DSH 原生接入验收。当前是预配置 Bearer 凭据接入，未实现通用 MCP OAuth 登录 / 自动发现。续期由客户端负责。
 
 ## 对外基本接口
 
@@ -66,12 +66,12 @@ MCP 仅提供 `list_memos`、`get_memo`、`create_memo`、`update_memo`、`appen
 }
 ```
 
-不提供 `dispatch` 就仅保存内容。备忘录和投递记录在同一 SQLite 事务提交；对应业务表中的 `(account_id, request_id)` 唯一约束防止重复创建，`request_hash` 校验重试输入。重试返回已有业务记录的当前状态，换输入复用旧 ID 返回 409，不保存历史响应。每次创建使用新的请求 ID，重试保持原 ID；保存并派发时，两条记录共用本次请求 ID。
+不提供 `dispatch` 或 `plan` 就仅保存内容。即时备忘录和投递记录在同一 SQLite 事务提交；对应业务表中的 `(account_id, request_id)` 唯一约束防止重复创建，`request_hash` 校验重试输入。重试返回已有业务记录的当前状态，换输入复用旧 ID 返回 409，不保存历史响应。每次创建使用新的请求 ID，重试保持原 ID；保存并派发时，两条记录共用本次请求 ID。
 
 - `project` 是分组文本，省略或空字符串表示未归类，可用同名查询参数筛选。当前无项目 CRUD 接口或 MCP 工具；以后项目需要独立内容时再拆表。派发时复制项目名称和正文，后续编辑不改变或重复派发旧指令。
 - 修改、追加和删除只携带 `revision`，不再接收 `request_id`。旧版本重试返回 `409 revision_conflict`，不会重复追加。客户端必须读取最新内容并核对结果，不能自动换成最新版本盲目再发；服务端无法重放历史成功响应。客户端冲突副本界面尚未实现。
 - 删除保留删除标记，并在同一事务取消尚未发送的 `pending` 指令。已经进入发送但未确认的 `leased` 指令会阻止删除，返回 `409 dispatch_in_flight`，即使回执已超时也不能当作撤回成功。设备确认接收后允许删除，但不停止 DSH 执行。
-- 当前只在创建备忘录时附带指令，修改或追加不会重新派发。尚未提供对已有备忘录再次派发的独立动作。设备收到的 `session_mode` 固定为 `new`。
+- 即时指令只在创建备忘录时附带；修改或追加不会重新派发旧指令。已有备忘录可以设置未来的定时计划。设备收到的 `session_mode` 固定为 `new`。
 - REST `/docs` 和 MCP `tools/list` 是当前字段与工具接口的准确入口，避免另维护一份完整接口副本。
 
 ## 备忘录内的投递状态
@@ -84,6 +84,30 @@ MCP 仅提供 `list_memos`、`get_memo`、`create_memo`、`update_memo`、`appen
 - `cancelled`：发送前随备忘录删除而取消。
 
 用户端查询备忘录即可看到这些状态，不接触租约凭据和内部重试次数。正文编辑版本与投递状态独立变化，`revision` 不代表投递状态版本。
+
+## 单次与周期计划
+
+创建或更新备忘录时，可提供一个 `plan`，与创建时的即时 `dispatch` 互斥。例如每周五 08:30：
+
+```json
+{
+  "request_id": "稳定请求标识",
+  "content": "整理本周记录",
+  "plan": {
+    "instruction": "整理并归纳本周记录",
+    "target_device_id": "电脑 B 的设备 ID",
+    "mode": "weekly",
+    "weekday": 4,
+    "time": "08:30",
+    "timezone": "Asia/Shanghai",
+    "enabled": true
+  }
+}
+```
+
+`mode` 为 `once`、`daily`、`weekly`、`monthly`；单次使用 UTC 毫秒时间戳 `run_at`，周一至周日为 `weekday` 0–6，每月使用 `day` 1–31，时间使用 `HH:mm`。短月没有指定日期时使用月底。`timezone` 默认 `Asia/Shanghai`，支持系统 IANA 时区；夏令时不存在的本地时刻跳过，重复时刻取第一次。更新时省略 `plan` 保留原计划，传 `null` 移除；传对象替换计划并使用备忘录 `revision` 校验。返回的 `plan.id` 和 `next_run_at` 为服务端管理字段，不能原样作为输入提交。
+
+服务在单进程中定时检查、启动时及设备连接时补查；每计划最多一条未确认投递，离线跨多个周期合并一次。设备确认接收后才计算下一周期；回执不表示执行完成。修改/暂停会取消未发送的投递，已发送待确认的内容不能撤回；暂停后恢复的周期从恢复后的下个正常时点开始。
 
 ## 设备 WebSocket 协议
 
@@ -135,7 +159,20 @@ MCP 仅提供 `list_memos`、`get_memo`、`create_memo`、`update_memo`、`appen
 
 ## 代码与验证
 
-`app.py` / `mcp.py` 负责入口，`schemas.py` 定义接口参数结构和校验，`auth.py` 负责认证，`service.py` 保存业务及事务边界，`db.py` 定义数据库表和连接，`notifications.py` 负责即时通知和补漏，`remote.py` 负责有界在线请求关联。
+后端采用 DDD 分层，目录位于 `src/dogo_server/`：
+
+| 目录 / 文件 | 内容 |
+| --- | --- |
+| `domain/` | 身份/设备、备忘录、投递实体与值对象；版本、删除、租约、回执等业务规则和不含 HTTP 状态的领域错误。 |
+| `application/` | `IdentityService`、`MemoService`、`DeliveryService`、`RemoteService`；命令、响应投影、仓储/工作单元/认证/中转端口。 |
+| `infrastructure/sqlite/` | 四张表、连接、实体映射、仓储和工作单元。仓储共享用例事务，不单独提交。 |
+| `infrastructure/` 其他模块 | 密码哈希与 JWT、提交后通知和低频补查、有界在线中转。 |
+| `interfaces/` | REST、MCP、WebSocket、Pydantic schemas、认证依赖、错误映射与命令转换。 |
+| `bootstrap.py`、`app.py`、`cli.py` | 实现装配、ASGI 生命周期和 CLI。 |
+
+领域层与应用层只依赖标准库及内部核心层；框架和数据访问均放在外层。写用例使用一个 `BEGIN IMMEDIATE` 事务，跨仓储失败一起回滚，提交后再唤醒设备；读用例使用同一个只读快照。详细依赖与事务边界见 [架构说明](../ARCHITECTURE.md)。
+
+旧顶层 `service.py`、`auth.py`、`db.py` 等内部模块已移除。测试工具通过 `create_app(...).state.container` 使用应用服务；定时功能启动时将数据库从版本 2 原子升级到版本 3，保留原数据和请求哈希，版本 1 仍拒绝启动。更新线上服务前应先备份数据库及凭据配置，先升级服务再更新客户端。
 
 ```sh
 uv run pytest -q
@@ -143,6 +180,6 @@ uv run ruff check src tests
 uv run ruff format --check src tests
 ```
 
-测试包括账户隔离、重复写入、事务回滚、版本冲突、内容快照、并发发送、删除与发送竞争、断线重投、重复回执、丢唤醒补查、接口收敛，以及真实进程重启后的 HTTP / WebSocket / 官方 MCP 客户端往返。
+测试包括账户隔离、重复写入、事务回滚、版本冲突、内容快照、并发发送、删除与发送竞争、断线重投、重复回执、丢唤醒补查、接口收敛，以及真实进程重启后的 HTTP / WebSocket / 官方 MCP 客户端往返。另有不连接数据库的领域规则测试、层间导入约束、提交后通知、只读快照测试；`tests/fixtures/v2.sql` 固定重构前表结构，用于验证已有数据库和创建请求哈希的兼容性，不含用户数据。
 
-当前未实现：Android 远程会话界面、完整离线同步与独立冲突副本、远程审批/提问、定时任务、完整 OAuth 接入。未部署到现有服务器，也未对目标服务器进行容量测试。
+当前未实现：Android 远程会话界面、完整离线同步与独立冲突副本、远程审批/提问、定时任务执行结果回传和失败自动重跑、完整 OAuth 接入。当前更改尚未部署，未进行目标服务器容量测试；历史部署情况见 [当前状态](../STATUS.md)。

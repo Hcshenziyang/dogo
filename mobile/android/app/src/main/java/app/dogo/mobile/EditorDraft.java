@@ -16,8 +16,13 @@ final class EditorDraft {
         JSONObject fields = Json.of("content", mode.equals("append") ? "" : memo.optString("content"),
                 "project", memo.optString("project"), "category", memo.optString("category"),
                 "tags", memo.optJSONArray("tags"), "active", memo.optBoolean("active", true));
-        return new EditorDraft(Json.of("mode", mode, "memo_id", memo.optString("id"),
-                "revision", memo.optInt("revision"), "fields", fields));
+        JSONObject data = Json.of("mode", mode, "memo_id", memo.optString("id"),
+                "revision", memo.optInt("revision"), "fields", fields);
+        if (mode.equals("edit") && memo.optJSONObject("plan") != null) {
+            Json.put(data, "plan_present", true);
+            Json.put(data, "schedule", ScheduleDraft.fromPlan(memo.optJSONObject("plan")));
+        }
+        return new EditorDraft(data);
     }
     String mode() { return data.optString("mode"); }
     String memoId() { return data.optString("memo_id"); }
@@ -33,6 +38,10 @@ final class EditorDraft {
             if (data.optBoolean("dispatch_enabled")) Json.put(payload, "dispatch",
                     Json.of("instruction", data.optString("instruction"), "target_device_id", data.optString("target_device_id")));
         } else Json.put(payload, "revision", data.optInt("revision"));
+        if (!mode().equals("append") && data.optBoolean("plan_dirty")) {
+            Json.put(payload, "plan", data.optBoolean("plan_present")
+                    ? ScheduleDraft.payload(data.optJSONObject("schedule")) : JSONObject.NULL);
+        }
         Json.put(data, "pending", payload);
         return Json.copy(payload);
     }

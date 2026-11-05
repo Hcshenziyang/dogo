@@ -19,4 +19,13 @@
     <item name="logout" type="id" />
     <item name="back" type="id" />
     <item name="message" type="id" />
+    <item name="plan_present" type="id" />
+    <item name="plan_enabled" type="id" />
+    <item name="plan_instruction" type="id" />
+    <item name="plan_date" type="id" />
+    <item name="plan_time" type="id" />
+    <item name="plan_type" type="id" />
+    <item name="plan_target" type="id" />
+    <item name="plan_weekday" type="id" />
+    <item name="plan_month_day" type="id" />
 </resources>

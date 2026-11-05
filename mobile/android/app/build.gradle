@@ -1,5 +1,10 @@
 plugins { id 'com.android.application' }
 
+def dogoLocal = new Properties()
+def dogoLocalFile = rootProject.file('local.properties')
+if (dogoLocalFile.isFile()) dogoLocalFile.withInputStream { dogoLocal.load(it) }
+def dogoDefaultServer = dogoLocal.getProperty('dogo.defaultServer', '').trim()
+
 android {
     namespace 'app.dogo.mobile'
     compileSdk 36
@@ -7,8 +12,9 @@ android {
         applicationId 'app.dogo.mobile'
         minSdk 26
         targetSdk 36
-        versionCode 1
-        versionName '0.1.0'
+        versionCode 3
+        versionName '0.1.2'
+        buildConfigField 'String', 'DEFAULT_SERVER_URL', groovy.json.JsonOutput.toJson(dogoDefaultServer)
         testInstrumentationRunner 'androidx.test.runner.AndroidJUnitRunner'
     }
     buildTypes {

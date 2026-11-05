@@ -6,7 +6,7 @@ from fastapi.testclient import TestClient
 from starlette.websockets import WebSocketDisconnect
 
 from dogo_server.app import create_app
-from dogo_server.schemas import DispatchAck
+from dogo_server.application.commands import DispatchAck
 
 
 def test_offline_delivery_survives_server_restart(client, headers, settings):
@@ -30,15 +30,19 @@ def test_concurrent_delivery_resumes_one_outstanding_receipt(client, headers, ap
     target, bound = device(client, headers)
     first = queued_memo(client, headers, target["id"]).json()
     second = queued_memo(client, headers, target["id"], request_id="second").json()
-    principal = app.state.auth.bearer(bound["Authorization"])
+    principal = app.state.container.identity.bearer(bound["Authorization"])
     with ThreadPoolExecutor(max_workers=6) as executor:
-        results = list(executor.map(lambda _: app.state.service.next_delivery(principal), range(6)))
+        results = list(
+            executor.map(
+                lambda _: app.state.container.deliveries.next_delivery(principal), range(6)
+            )
+        )
     assert len({result["id"] for result in results}) == 1
     assert len({result["lease_token"] for result in results}) == 1
     assert {result["attempts"] for result in results} == {1}
     delivered = results[0]
-    app.state.service.acknowledge(principal, DispatchAck(**receipt(delivered)))
-    next_delivery = app.state.service.next_delivery(principal)
+    app.state.container.deliveries.acknowledge(principal, DispatchAck(**receipt(delivered)))
+    next_delivery = app.state.container.deliveries.next_delivery(principal)
     assert {delivered["id"], next_delivery["id"]} == {
         first["dispatch"]["id"],
         second["dispatch"]["id"],
@@ -51,7 +55,7 @@ def test_lease_retry_keeps_command_id_and_ack_is_idempotent(client, headers, app
     with client.websocket_connect("/api/device/connect", headers=bound) as ws:
         assert ws.receive_json()["type"] == "connected"
         first = ws.receive_json()["dispatch"]
-        app.state.service.clock = lambda: first["lease_until"] + 1
+        app.state.container.deliveries.clock = lambda: first["lease_until"] + 1
         retried = ws.receive_json()["dispatch"]
         assert retried["id"] == first["id"]
         assert retried["lease_token"] != first["lease_token"]
@@ -114,7 +118,7 @@ def test_immediate_push_disconnect_and_reconnect_preserve_delivery(client, heade
 
 def test_sweep_recovers_a_missed_wakeup(client, headers, app):
     target, bound = device(client, headers)
-    app.state.service.notify = lambda *_: None
+    app.state.container.memos.notify = lambda *_: None
     with client.websocket_connect("/api/device/connect", headers=bound) as ws:
         assert ws.receive_json()["type"] == "connected"
         memo = queued_memo(client, headers, target["id"]).json()

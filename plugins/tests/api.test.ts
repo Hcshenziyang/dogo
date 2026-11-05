@@ -54,7 +54,7 @@ describe('authentication and mutation boundaries', () => {
     await api.login('https://example.test', 'alice', 'test-password', 'B');
     api.state!.expiresAt = 0;
     await Promise.all([api.token(), api.token(), api.token()]);
-    expect(fetcher).toHaveBeenCalledTimes(2);
+    expect(fetcher).toHaveBeenCalledTimes(3); // login, reachability probe, refresh
     expect(JSON.stringify(api.view())).not.toContain('access_token');
   });
   it('does not rotate an existing login while another request refreshes credentials', async () => {
@@ -67,7 +67,7 @@ describe('authentication and mutation boundaries', () => {
     await api.login('https://example.test', 'alice', 'password', 'B');
     api.state!.expiresAt = 0;
     await Promise.all([api.token(), api.login('https://example.test', 'alice', 'password', 'B')]);
-    expect(fetcher).toHaveBeenCalledTimes(2);
+    expect(fetcher).toHaveBeenCalledTimes(3); // login, reachability probe, refresh
     expect(api.state!.tokens).toEqual(tokens);
   });
   it('clears an ambiguous refresh result instead of replaying the old refresh token', async () => {
@@ -75,12 +75,26 @@ describe('authentication and mutation boundaries', () => {
     const fetcher = vi
       .fn()
       .mockResolvedValueOnce(response(tokens))
+      .mockResolvedValueOnce(response({}, 401))
       .mockRejectedValueOnce(Error('network lost'));
     const api = new Api(store, credentials, fetcher);
     await api.login('https://example.test', 'alice', 'password', 'B');
     await expect(api.refresh()).rejects.toThrow('network lost');
     expect(api.state).toBeUndefined();
     expect(await credentials.readRecord()).toBeUndefined();
+  });
+  it('preserves the refresh credential when the server cannot be reached before refresh', async () => {
+    const { store, credentials } = await setup();
+    const fetcher = vi
+      .fn()
+      .mockResolvedValueOnce(response(tokens))
+      .mockRejectedValueOnce(Error('offline'));
+    const api = new Api(store, credentials, fetcher);
+    await api.login('https://example.test', 'alice', 'password', 'B');
+    await expect(api.refresh()).rejects.toThrow('登录状态已保留');
+    expect(api.state?.username).toBe('alice');
+    expect(await credentials.readRecord()).toBeDefined();
+    expect(fetcher).toHaveBeenCalledTimes(2);
   });
   it('keeps the exact mutation after an unknown result and refuses automatic revision changes', async () => {
     const { store, credentials } = await setup();

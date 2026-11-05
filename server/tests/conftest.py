@@ -20,8 +20,8 @@ def settings(tmp_path):
 @pytest.fixture
 def app(settings):
     application = create_app(settings)
-    application.state.auth.create_account("alice", "alice-test-password")
-    application.state.auth.create_account("bob", "bob-test-password")
+    application.state.container.identity.create_account("alice", "alice-test-password")
+    application.state.container.identity.create_account("bob", "bob-test-password")
     return application
 
 
