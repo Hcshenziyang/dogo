@@ -161,6 +161,40 @@ async function setup() {
 }
 
 describe('local-first memo synchronization', () => {
+  it('preserves hidden project, category and exact tags through an offline edit and sync', async () => {
+    const f = await setup();
+    f.remote();
+    Object.assign(f.records.get('remote-existing'), {
+      project: '旧项目',
+      category: '旧分类',
+      tags: ['原标签', '包含,逗号'],
+    });
+    await f.cycle();
+    const memo = (await f.local.list()).items[0];
+    f.offline(true);
+    await f.local.submit({
+      method: 'update',
+      id: memo.id,
+      data: {
+        content: '离线修改正文',
+        project: memo.project,
+        category: memo.category,
+        tags: memo.tags,
+        active: memo.active,
+        revision: memo.revision,
+      },
+    });
+    await f.cycle();
+    f.offline(false);
+    await f.cycle();
+    expect(f.records.get('remote-existing')).toMatchObject({
+      content: '离线修改正文',
+      project: '旧项目',
+      category: '旧分类',
+      tags: ['原标签', '包含,逗号'],
+    });
+  });
+
   it('downloads an existing online memo, edits it offline after restart, then syncs the same record', async () => {
     const f = await setup();
     f.remote();

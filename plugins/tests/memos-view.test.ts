@@ -52,7 +52,7 @@ function fixture(options: { localFirst?: boolean } = {}) {
       content: '第一条\n正文',
       project: '工作',
       category: '原分类',
-      tags: [],
+      tags: ['原标签', '带,逗号'],
       active: true,
       revision: 4,
       ...(options.localFirst
@@ -69,6 +69,7 @@ function fixture(options: { localFirst?: boolean } = {}) {
       active: true,
       revision: 3,
       updated_at: 20,
+      ...(options.localFirst ? { sync_status: 'local' } : {}),
     },
     {
       id: 'c',
@@ -79,6 +80,7 @@ function fixture(options: { localFirst?: boolean } = {}) {
       active: true,
       revision: 2,
       updated_at: 10,
+      ...(options.localFirst ? { sync_status: 'conflict' } : {}),
     },
   ];
   let pending: any = null,
@@ -210,18 +212,25 @@ beforeEach(() => {
 afterEach(() => vi.unstubAllGlobals());
 
 describe('formal memo grid flows', () => {
-  it('renders a full grid without pin controls/sidebar and retains search, project filters, and pagination', async () => {
+  it('renders a simple grid with content search and pagination', async () => {
     const f = fixture();
     await f.flush();
     expect(f.all((n: any) => n.type === 'aside')).toHaveLength(0);
     expect(f.all((n: any) => /置顶/.test(f.text(n)))).toHaveLength(0);
     expect(f.tiles()).toHaveLength(2);
+    expect(f.named('新建备忘')).toBeTruthy();
+    expect(f.all((n: any) => n.props.className === 'dg-memo-tile dg-memo-new-tile')).toHaveLength(
+      0,
+    );
+    expect(f.all((n: any) => /条显示|条本机记录|未登录，保存在本机/.test(f.text(n)))).toHaveLength(
+      0,
+    );
+    await f.edit('搜索备忘录', '第二条');
+    expect(f.tiles()).toHaveLength(1);
     await f.edit('搜索备忘录', '目标标签');
-    expect(f.tiles()).toHaveLength(1);
+    expect(f.tiles()).toHaveLength(0);
     await f.edit('搜索备忘录', '');
-    await f.click('生活');
-    expect(f.tiles()).toHaveLength(1);
-    await f.click('所有内容');
+    expect(f.all((n: any) => n.props.className === 'dg-memo-project')).toHaveLength(0);
     await f.click('加载更多');
     expect(f.tiles()).toHaveLength(3);
   });
@@ -233,12 +242,49 @@ describe('formal memo grid flows', () => {
     await f.click('关闭编辑器');
     await f.edit('搜索备忘录', '新草稿标题');
     expect(f.tiles()).toHaveLength(1);
-    expect(f.text(f.tiles()[0])).toContain('未同步');
+    expect(f.tiles()[0].props['aria-description']).toBe('未同步，草稿未保存');
     await f.click('编辑：新草稿标题');
     expect(f.named('备忘录内容').props.value).toBe('新草稿标题\n尚未同步');
     expect(
       JSON.parse(localStorage.getItem(draftKey('https://fixture.test/test', 'b'))!).revision,
     ).toBe(3);
+  });
+  it('shows compact sync icons, retains pagination and identifies conflicts and unsaved drafts', async () => {
+    localStorage.setItem(
+      draftKey('local/account-a', 'c'),
+      JSON.stringify({ id: 'c', content: '冲突草稿', dirty: true, sync_status: 'local' }),
+    );
+    const f = fixture({ localFirst: true });
+    try {
+      await f.flush();
+      const synced = f.named('编辑：第一条');
+      const local = f.named('编辑：第二条');
+      expect(synced.props['aria-description']).toBe('已同步');
+      expect(local.props['aria-description']).toBe('未同步');
+      expect(f.all((n: any) => n.props.title === '已同步')).toHaveLength(1);
+      expect(f.all((n: any) => n.props.title === '未同步')).toHaveLength(1);
+      expect(f.text(local)).not.toContain('仅本机');
+      await f.click('加载更多');
+      expect(f.named('编辑：冲突草稿').props['aria-description']).toBe('同步冲突，草稿未保存');
+      expect(f.all((n: any) => n.props.title === '同步冲突，草稿未保存')).toHaveLength(1);
+      await f.click('编辑：第一条');
+      await f.edit('备忘录内容', '修改后尚未保存');
+      await f.click('关闭编辑器');
+      expect(f.named('编辑：修改后尚未保存').props['aria-description']).toBe('未同步，草稿未保存');
+    } finally {
+      f.dispose();
+    }
+  });
+  it('keeps synchronization errors discoverable without adding status text to the grid', async () => {
+    const f = fixture({ localFirst: true });
+    f.props.status.sync = { phase: 'needs-review', error: '请求失败' };
+    try {
+      await f.flush();
+      expect(f.named('同步需要核对').props.title).toBe('同步需要核对：请求失败');
+      expect(f.text(f.named('同步需要核对'))).toBe('');
+    } finally {
+      f.dispose();
+    }
   });
   it('keeps the initial grid visible and applies native inert without React-version-specific boolean props', async () => {
     localStorage.setItem('dogo.memo.selection.https://fixture.test/test', JSON.stringify('b'));
@@ -270,43 +316,25 @@ describe('formal memo grid flows', () => {
     expect(f.named('备忘录内容').props.value).toBe('存储失败时仍保留的草稿');
     expect(f.props.setError).toHaveBeenCalled();
   });
-  it('does not invent a server project filter from an unsubmitted project change', async () => {
-    const f = fixture();
-    await f.flush();
-    await f.click('编辑：第二条');
-    await f.click('属性');
-    await f.edit('项目', 'new');
-    await f.edit('新项目名称', '尚未提交的新项目');
-    await f.click('关闭编辑器');
-    const chips = f.all((n: any) => n.props.className?.includes('dg-filter-chip'));
-    expect(chips.some((n: any) => f.text(n) === '尚未提交的新项目')).toBe(false);
-    expect(f.tiles().some((n: any) => f.text(n).includes('尚未提交的新项目'))).toBe(true);
-  });
-  it('selects or creates a project while preserving the legacy category in saves', async () => {
+  it('hides project, category and tags while preserving their exact values when saving content', async () => {
     const f = fixture();
     await f.flush();
     await f.click('编辑：第一条');
-    expect(f.named('项目').type).toBe('select');
-    await f.edit('项目', JSON.stringify('生活'));
+    expect(f.named('项目')).toBeUndefined();
+    expect(f.named('标签')).toBeUndefined();
+    expect(f.all((n: any) => n.type === 'p' && f.text(n).includes('原分类'))).toHaveLength(0);
+    await f.edit('备忘录内容', '只修改正文');
     await f.click('保存');
     expect(f.control).toHaveBeenCalledWith(
       'submit',
       expect.objectContaining({
         method: 'update',
-        data: expect.objectContaining({ project: '生活', category: '原分类' }),
-      }),
-    );
-    await f.edit('项目', 'new');
-    await f.edit('新项目名称', '新项目');
-    await f.click('关闭编辑器');
-    await f.click('编辑：第一条');
-    expect(f.named('项目').props.value).toBe(JSON.stringify('新项目'));
-    await f.click('保存');
-    expect(f.control).toHaveBeenCalledWith(
-      'submit',
-      expect.objectContaining({
-        method: 'update',
-        data: expect.objectContaining({ project: '新项目', category: '原分类' }),
+        data: expect.objectContaining({
+          content: '只修改正文',
+          project: '工作',
+          category: '原分类',
+          tags: ['原标签', '带,逗号'],
+        }),
       }),
     );
   });

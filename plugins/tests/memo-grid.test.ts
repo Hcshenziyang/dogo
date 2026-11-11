@@ -1,5 +1,5 @@
 import { describe, expect, it } from 'vitest';
-import { memoProjectTone, memoWithDraft, visibleMemos } from '../memos/presentation.js';
+import { memoWithDraft, visibleMemos } from '../memos/presentation.js';
 
 describe('memo grid presentation', () => {
   const memo = {
@@ -12,6 +12,7 @@ describe('memo grid presentation', () => {
     updated_at: 20,
     created_at: 10,
     dispatch: { status: 'accepted' },
+    sync_status: 'synced',
   };
   it('shows local edits without disguising the server timestamp or delivery state', () => {
     const local = {
@@ -21,24 +22,27 @@ describe('memo grid presentation', () => {
       revision: 3,
       updated_at: 1,
       dispatch: { status: 'pending' },
+      sync_status: 'local',
     };
     expect(memoWithDraft(memo, local)).toEqual({
       ...local,
       updated_at: 20,
       dispatch: memo.dispatch,
+      sync_status: 'synced',
     });
     expect(memoWithDraft(memo, null)).toBe(memo);
     expect(memoWithDraft(memo, { ...local, dirty: false })).toBe(memo);
   });
-  it('searches drafts, projects, categories and edited tags with trimmed queries', () => {
+  it('searches memo content and drafts without exposing hidden metadata', () => {
     const draft = memoWithDraft(memo, {
       ...memo,
       content: '本机草稿',
       tagText: '新标签',
       dirty: true,
     });
-    for (const search of [' 本机草稿 ', '项目', '旧分类', '新标签', '标记'])
-      expect(visibleMemos([draft], search, 'updated')).toHaveLength(1);
+    expect(visibleMemos([draft], ' 本机草稿 ', 'updated')).toHaveLength(1);
+    for (const search of ['项目', '旧分类', '新标签', '标记'])
+      expect(visibleMemos([draft], search, 'updated')).toHaveLength(0);
     expect(visibleMemos([draft], '服务器标题', 'updated')).toHaveLength(0);
   });
   it('sorts a copy by edited/created date or title without mutating records', () => {
@@ -57,10 +61,5 @@ describe('memo grid presentation', () => {
       { id: 'iso', updated_at: '2026-10-30T00:00:00Z' },
     ];
     expect(visibleMemos(list, '', 'updated').map((m) => m.id)).toEqual(['iso', 'seconds', 'draft']);
-  });
-  it('assigns stable project colors without inventing a category or server field', () => {
-    expect(memoProjectTone('')).toBe('');
-    expect(memoProjectTone('项目')).toBe(memoProjectTone('项目'));
-    expect(['blue', 'amber', 'green', 'purple']).toContain(memoProjectTone('中文项目'.repeat(40)));
   });
 });

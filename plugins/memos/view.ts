@@ -12,10 +12,10 @@ import {
 
 import { scheduleForm, planPayload } from './schedule.js';
 
-import { memoProjectTone, memoWithDraft, visibleMemos } from './presentation.js';
+import { memoSyncIndicator, memoWithDraft, visibleMemos } from './presentation.js';
 
 export function createMemosView(React: any, ui: any) {
-  const { h, Icon, Button, Badge, Field, Empty, Markdown } = ui;
+  const { h, Icon, Button, Badge, Empty, Markdown } = ui;
   return function Memos({
     control,
     status,
@@ -38,15 +38,12 @@ export function createMemosView(React: any, ui: any) {
     const [sort, setSort] = React.useState('updated');
     const [items, setItems] = React.useState([] as Dict[]),
       [cursor, setCursor] = React.useState('');
-    const [project, setProject] = React.useState(''),
-      [search, setSearch] = React.useState('');
-    const [projects, setProjects] = React.useState([] as string[]),
-      [loading, setLoading] = React.useState(true);
+    const [search, setSearch] = React.useState('');
+    const [loading, setLoading] = React.useState(true);
     const [draft, setDraft] = React.useState(null as Dict | null),
       [detail, setDetail] = React.useState(false);
     const [properties, setProperties] = React.useState(false),
       [preview, setPreview] = React.useState(false);
-    const [projectCreating, setProjectCreating] = React.useState(false);
     const [dispatchOpen, setDispatchOpen] = React.useState(false),
       [pending, setPending] = React.useState(null as Dict | null);
     const [comparison, setComparison] = React.useState(null as Dict | null),
@@ -56,7 +53,6 @@ export function createMemosView(React: any, ui: any) {
       mounted = React.useRef(true),
       request = React.useRef(0);
     const editor = React.useRef(null);
-    const newProjectInput = React.useRef(null as HTMLInputElement | null);
     const panel = React.useRef(null as HTMLElement | null);
     const searchInput = React.useRef(null as HTMLInputElement | null);
     const newButton = React.useRef(null as HTMLButtonElement | null);
@@ -120,9 +116,6 @@ export function createMemosView(React: any, ui: any) {
         });
       }
     }, [detail, busy]);
-    React.useEffect(() => {
-      if (projectCreating) requestAnimationFrame(() => newProjectInput.current?.focus());
-    }, [projectCreating]);
     const storeDraft = (value: Dict) => {
       current.current = value;
       memoryDrafts.current.set(value.id || 'new', value);
@@ -139,12 +132,11 @@ export function createMemosView(React: any, ui: any) {
     const update = (change: Dict) => {
       if (current.current) storeDraft({ ...current.current, ...change, dirty: true });
     };
-    const list = async (filter = project, more = false, silent = false) => {
+    const list = async (more = false, silent = false) => {
       const sequence = ++request.current;
       if (!silent) setLoading(true);
       try {
         const result = await control('list', {
-          project: filter,
           ...(more && cursor ? { cursor } : {}),
         });
         if (!mounted.current || sequence !== request.current) return;
@@ -157,11 +149,6 @@ export function createMemosView(React: any, ui: any) {
             : result.items,
         );
         setCursor(result.next_cursor || '');
-        setProjects((old: string[]) =>
-          [
-            ...new Set([...old, ...result.items.map((m: Dict) => m.project).filter(Boolean)]),
-          ].sort(),
-        );
         return result.items;
       } finally {
         if (!silent && mounted.current && sequence === request.current) setLoading(false);
@@ -176,7 +163,6 @@ export function createMemosView(React: any, ui: any) {
       setDetail(open);
       setPreview(false);
       setProperties(false);
-      setProjectCreating(false);
       setDispatchOpen(false);
     };
     React.useEffect(() => {
@@ -190,7 +176,7 @@ export function createMemosView(React: any, ui: any) {
           const next = await control('sync-status');
           if (!active) return;
           setSyncState(next);
-          if (!busy && !detail) await list(project, false, true);
+          if (!busy && !detail) await list(false, true);
         } catch {
           // Local reads and drafts remain usable if status polling fails.
         } finally {
@@ -201,12 +187,11 @@ export function createMemosView(React: any, ui: any) {
         active = false;
         clearInterval(timer);
       };
-    }, [localFirst, busy, detail, project]);
+    }, [localFirst, busy, detail]);
     const newMemo = () => {
       rememberFocus();
       const value = localDraft() || {
         ...blankMemo(),
-        project,
         instruction: '',
         destination: '',
       };
@@ -214,7 +199,6 @@ export function createMemosView(React: any, ui: any) {
       setDetail(true);
       setPreview(false);
       setProperties(false);
-      setProjectCreating(false);
       setDispatchOpen(!!value.instruction);
       requestAnimationFrame(() => editor.current?.focus());
     };
@@ -247,7 +231,7 @@ export function createMemosView(React: any, ui: any) {
             writeLocal(draftKey(identity, previous.id || 'new'), { ...previous, dirty: true });
           writeLocal('dogo.draft.imported.' + identity, true);
         }
-        const records = await list('');
+        const records = await list();
         if (!mounted.current) return;
         const local = localDraft();
         const last = readLocal('dogo.memo.selection.' + identity);
@@ -289,10 +273,13 @@ export function createMemosView(React: any, ui: any) {
         content: value.content,
         project: value.project,
         category: value.category,
-        tags: (value.tagText ?? value.tags?.join(',') ?? '')
-          .split(/[,，]/)
-          .map((v: string) => v.trim())
-          .filter(Boolean),
+        tags:
+          value.tagText === undefined
+            ? value.tags || []
+            : value.tagText
+                .split(/[,，]/)
+                .map((v: string) => v.trim())
+                .filter(Boolean),
         active: value.active,
       };
       const op = value.id
@@ -376,14 +363,9 @@ export function createMemosView(React: any, ui: any) {
     };
     const displayItems = items.map((m: Dict) => memoWithDraft(m, draftFor(m)));
     const newDraft = localDraft();
-    if (
-      (newDraft?.content?.trim() || newDraft?.instruction?.trim()) &&
-      (!project || newDraft.project === project)
-    )
+    if (newDraft?.content?.trim() || newDraft?.instruction?.trim())
       displayItems.unshift({ ...newDraft, dirty: true });
     const filtered = visibleMemos(displayItems, search, sort);
-    // Chips describe persisted server projects, not unsubmitted draft metadata.
-    const filterProjects = projects;
     const memo = draft;
     const pendingView =
       pending &&
@@ -406,7 +388,6 @@ export function createMemosView(React: any, ui: any) {
             null,
             h('small', null, pending.method === 'delete' ? '等待确认的操作' : '原写入内容'),
             h('pre', null, pending.method === 'delete' ? '删除备忘录' : pending.data?.content),
-            h('small', null, pending.data?.project ? '项目：' + pending.data.project : ''),
           ),
           comparison &&
             h(
@@ -486,10 +467,6 @@ export function createMemosView(React: any, ui: any) {
           ),
         ),
       );
-    const chooseProject = (next: string) => {
-      setProject(next);
-      void run(() => list(next));
-    };
     return h(
       'div',
       {
@@ -522,7 +499,7 @@ export function createMemosView(React: any, ui: any) {
               ref: searchInput,
               type: 'search',
               'aria-label': '搜索备忘录',
-              placeholder: cursor ? '搜索已加载的备忘录' : '搜索标题、内容或标签',
+              placeholder: cursor ? '搜索已加载的备忘录' : '搜索备忘录内容',
               value: search,
               onChange: (e: any) => setSearch(e.target.value),
               onKeyDown: (e: any) => {
@@ -545,6 +522,21 @@ export function createMemosView(React: any, ui: any) {
             h(Icon, { name: 'plus', size: 16 }),
             '新建备忘',
           ),
+          localFirst &&
+            status.loggedIn &&
+            ['offline', 'needs-review'].includes(syncState?.phase) &&
+            h(
+              'span',
+              {
+                className: 'dg-memo-sync-error',
+                role: 'status',
+                'aria-label': syncState.phase === 'offline' ? '同步暂不可用' : '同步需要核对',
+                title:
+                  (syncState.phase === 'offline' ? '同步暂不可用' : '同步需要核对') +
+                  (syncState.error ? '：' + syncState.error : ''),
+              },
+              h(Icon, { name: 'warning', size: 16 }),
+            ),
           h(Button, {
             icon: 'refresh',
             'aria-label': '刷新备忘录',
@@ -562,32 +554,7 @@ export function createMemosView(React: any, ui: any) {
         ),
         h(
           'div',
-          { className: 'dg-memo-filters', 'aria-label': '内容与项目筛选' },
-          h(
-            Button,
-            {
-              className: 'dg-filter-chip',
-              'aria-pressed': !project,
-              disabled: busy,
-              onClick: () => {
-                chooseProject('');
-              },
-            },
-            '所有内容',
-          ),
-          ...filterProjects.map((p: string) =>
-            h(
-              Button,
-              {
-                key: p,
-                className: 'dg-filter-chip',
-                'aria-pressed': project === p,
-                disabled: busy,
-                onClick: () => chooseProject(project === p ? '' : p),
-              },
-              p,
-            ),
-          ),
+          { className: 'dg-memo-filters', 'aria-label': '备忘录排序' },
           h(
             'select',
             {
@@ -631,46 +598,34 @@ export function createMemosView(React: any, ui: any) {
             ? [1, 2, 3].map((n) =>
                 h('div', { key: n, className: 'dg-skeleton', 'aria-label': '正在加载' }),
               )
-            : filtered.map((m: Dict) =>
-                h(
+            : filtered.map((m: Dict) => {
+                const indicator = memoSyncIndicator(m, localFirst);
+                return h(
                   'button',
                   {
                     type: 'button',
                     key: m.id || 'draft:' + m.request_id,
                     className: 'dg-memo-tile',
                     'aria-current': memo?.id === m.id && !!m.id,
-                    'data-tone': memoProjectTone(m.project),
                     'aria-label': '编辑：' + memoTitle(m.content),
+                    'aria-description': indicator.label,
                     disabled: busy,
                     onClick: () => (m.id ? void run(() => select(m)) : newMemo()),
                   },
                   h(
                     'div',
-                    { className: 'dg-memo-tile-top' },
+                    { className: 'dg-memo-tile-heading' },
+                    h('h3', { className: 'dg-memo-tile-title' }, memoTitle(m.content)),
                     h(
                       'span',
-                      { className: 'dg-memo-project', title: m.project || '未分类' },
-                      m.project || '未分类',
+                      {
+                        className: 'dg-memo-sync dg-memo-sync-' + indicator.tone,
+                        title: indicator.label,
+                        'aria-hidden': true,
+                      },
+                      h(Icon, { name: indicator.icon, size: 16 }),
                     ),
-                    m.dirty
-                      ? h(
-                          'span',
-                          { className: 'dg-small dg-muted' },
-                          localFirst ? '未保存' : '未同步',
-                        )
-                      : localFirst && m.sync_status !== 'synced'
-                        ? h(
-                            'span',
-                            { className: 'dg-small dg-muted' },
-                            m.sync_status === 'conflict'
-                              ? '冲突副本'
-                              : m.sync_status === 'pending'
-                                ? '待同步'
-                                : '仅本机',
-                          )
-                        : null,
                   ),
-                  h('h3', { className: 'dg-memo-tile-title' }, memoTitle(m.content)),
                   h('p', { className: 'dg-memo-tile-excerpt' }, memoExcerpt(m.content)),
                   h(
                     'div',
@@ -701,8 +656,8 @@ export function createMemosView(React: any, ui: any) {
                           : deliveryLabels[m.dispatch.status] || '等待确认',
                       ),
                   ),
-                ),
-              ),
+                );
+              }),
           !loading &&
             !filtered.length &&
             h(
@@ -714,48 +669,13 @@ export function createMemosView(React: any, ui: any) {
                 ? '当前只搜索已加载记录，可以继续加载更多。'
                 : '试试其他关键词，或新建一条备忘。',
             ),
-          !search &&
-            h(
-              'button',
-              {
-                type: 'button',
-                className: 'dg-memo-tile dg-memo-new-tile',
-                disabled: busy,
-                onClick: newMemo,
-              },
-              h(Icon, { name: 'plus', size: 24 }),
-              '记下一个新想法',
-            ),
         ),
-        h(
-          'div',
-          { className: 'dg-memo-grid-footer' },
+        cursor &&
           h(
-            'span',
-            { role: 'status', title: syncState?.error || undefined },
-            filtered.length +
-              ' 条显示 · ' +
-              items.length +
-              (cursor ? '+ 条已加载' : localFirst ? ' 条本机记录' : ' 条在线记录') +
-              (localFirst
-                ? !status.loggedIn
-                  ? ' · 未登录，保存在本机'
-                  : syncState?.phase === 'offline'
-                    ? ' · 暂未连接，内容保存在本机'
-                    : syncState?.phase === 'needs-review'
-                      ? ' · 同步需要核对'
-                      : syncState?.phase === 'syncing'
-                        ? ' · 正在同步'
-                        : ' · 自动同步已开启'
-                : ''),
+            'div',
+            { className: 'dg-memo-grid-footer' },
+            h(Button, { disabled: busy, onClick: () => void run(() => list(true)) }, '加载更多'),
           ),
-          cursor &&
-            h(
-              Button,
-              { disabled: busy, onClick: () => void run(() => list(project, true)) },
-              '加载更多',
-            ),
-        ),
       ),
       detail &&
         h(
@@ -872,9 +792,9 @@ export function createMemosView(React: any, ui: any) {
                       'div',
                       { className: 'dg-row' },
                       h(Button, {
-                        icon: 'tag',
-                        title: '更多属性：标签与启用状态',
-                        'aria-label': '属性',
+                        icon: 'info',
+                        title: '备忘录启用状态',
+                        'aria-label': '状态',
                         'aria-expanded': properties,
                         className: properties ? 'dg-selected' : '',
                         onClick: () => setProperties(!properties),
@@ -937,82 +857,10 @@ export function createMemosView(React: any, ui: any) {
                   h(
                     'div',
                     { className: 'dg-editor-scroll' },
-                    h(
-                      'div',
-                      { className: 'dg-memo-project-field' },
-                      h(
-                        'label',
-                        { className: 'dg-field' },
-                        h('span', null, '项目'),
-                        h(
-                          'select',
-                          {
-                            'aria-label': '项目',
-                            value: projectCreating ? 'new' : JSON.stringify(memo.project || ''),
-                            disabled: busy,
-                            onChange: (e: any) => {
-                              if (e.target.value === 'new') {
-                                setProjectCreating(true);
-                                update({ project: '' });
-                              } else {
-                                setProjectCreating(false);
-                                update({ project: JSON.parse(e.target.value) });
-                              }
-                            },
-                          },
-                          h('option', { value: JSON.stringify('') }, '未分类'),
-                          ...[...new Set([...projects, memo.project].filter(Boolean))].map(
-                            (name: any) =>
-                              h('option', { key: name, value: JSON.stringify(name) }, name),
-                          ),
-                          h('option', { value: 'new' }, '＋ 新项目…'),
-                        ),
-                      ),
-                      projectCreating &&
-                        h(
-                          'label',
-                          { className: 'dg-field' },
-                          h('span', null, '新项目名称'),
-                          h('input', {
-                            ref: newProjectInput,
-                            'aria-label': '新项目名称',
-                            placeholder: '输入名称，保存备忘录时使用',
-                            value: memo.project,
-                            maxLength: 100,
-                            disabled: busy,
-                            onChange: (e: any) => update({ project: e.target.value }),
-                          }),
-                        ),
-                      h(
-                        'small',
-                        { className: 'dg-muted' },
-                        projectCreating
-                          ? '随备忘录一起保存，不单独创建空项目。'
-                          : '从已加载项目选择，也可以输入新名称。',
-                      ),
-                    ),
                     properties &&
                       h(
                         'div',
                         { className: 'dg-properties' },
-                        memo.category &&
-                          h(
-                            'p',
-                            { className: 'dg-small dg-muted dg-span' },
-                            '原分类：' + memo.category + '（保留，不与项目合并）',
-                          ),
-                        h(
-                          'div',
-                          { className: 'dg-span' },
-                          h(Field, {
-                            label: '标签',
-                            hint: '使用逗号分隔',
-                            placeholder: '待整理, 产品',
-                            value: memo.tagText ?? (memo.tags || []).join(', '),
-                            disabled: busy,
-                            onChange: (e: any) => update({ tagText: e.target.value }),
-                          }),
-                        ),
                         h(
                           'label',
                           { className: 'dg-check dg-span' },
@@ -1025,17 +873,8 @@ export function createMemosView(React: any, ui: any) {
                           '启用这条备忘录',
                         ),
                       ),
-                    (!!memo.tags?.length || !memo.active) &&
-                      h(
-                        'div',
-                        { className: 'dg-editor-meta' },
-                        ...(memo.tags || [])
-                          .slice(0, 4)
-                          .map((tag: string) =>
-                            h('span', { className: 'dg-chip', key: tag }, '# ' + tag),
-                          ),
-                        !memo.active && h(Badge, {}, '已停用'),
-                      ),
+                    !memo.active &&
+                      h('div', { className: 'dg-editor-meta' }, h(Badge, {}, '已停用')),
                     h(
                       'div',
                       { className: 'dg-paper' },
