@@ -212,6 +212,22 @@ beforeEach(() => {
 afterEach(() => vi.unstubAllGlobals());
 
 describe('formal memo grid flows', () => {
+  it('starts synchronization on opening only when the local account is logged in', async () => {
+    const loggedIn = fixture({ localFirst: true });
+    const loggedOut = fixture({ localFirst: true });
+    loggedOut.props.status.loggedIn = false;
+    try {
+      await loggedIn.flush();
+      await loggedOut.flush();
+      expect(loggedIn.control).toHaveBeenCalledWith('sync-now');
+      expect(loggedOut.control).not.toHaveBeenCalledWith('sync-now');
+      expect(loggedIn.tiles()).toHaveLength(2);
+      expect(loggedOut.tiles()).toHaveLength(2);
+    } finally {
+      loggedIn.dispose();
+      loggedOut.dispose();
+    }
+  });
   it('renders a simple grid with content search and pagination', async () => {
     const f = fixture();
     await f.flush();

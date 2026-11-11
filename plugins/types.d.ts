@@ -6,3 +6,9 @@ declare module '@deepseek-ai/dsh-client-connection' {
 declare module '@deepseek-ai/dsh-tools' {
   export function defineTool(value: any): any;
 }
+declare module '@deepseek-ai/dsh-mcp-client' {
+  export const name: string;
+  export const inject: string[];
+  export const Config: any;
+  export function apply(ctx: any, config: any): Promise<void>;
+}

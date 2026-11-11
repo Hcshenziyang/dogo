@@ -20,6 +20,7 @@ Thumbs.db
 *.pem
 *.key
 data/
+data-rust/
 .dogo/
 models/
 *.safetensors
@@ -58,3 +59,6 @@ __pycache__/
 .ruff_cache/
 *.egg-info/
 jwt-secret
+rust-jwt-secret
+# Rust build output.
+target/

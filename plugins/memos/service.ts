@@ -102,6 +102,19 @@ export class MemoService {
       }
       case 'sync-status':
         return this.sync.status();
+      case 'sync-report': {
+        const owner = this.sync.owner();
+        if (!owner) throw Error('请先登录 DogO。');
+        const records = await this.local.snapshot(owner);
+        if (this.sync.owner() !== owner) throw Error('DogO 账户已变化，请重试。');
+        return {
+          ...this.sync.status(),
+          pending_count: records.filter((memo) => !memo.conflict_of && (memo.dirty || memo.outbox))
+            .length,
+          conflict_count: records.filter((memo) => memo.conflict_of && memo.deleted_at === null)
+            .length,
+        };
+      }
       case 'sync-now':
         this.sync.kick();
         return this.sync.status();

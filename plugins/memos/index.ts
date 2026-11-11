@@ -1,6 +1,7 @@
 import { defineTool } from '@deepseek-ai/dsh-tools';
 import { acquire, registerControl, mutation } from '../shared/runtime.js';
 import { MemoService } from './service.js';
+import { installSyncMcp } from './sync-mcp.js';
 export const name = 'dogo-memos';
 export const inject = ['credentials', 'connection', 'webServer', 'tools'];
 function tools(ctx: any, runtime: MemoService) {
@@ -48,6 +49,7 @@ export function apply(owner: any) {
     ctx.effect(() => shared.release);
     const service = new MemoService(shared.runtime);
     ctx.effect(() => service.sync.start());
+    ctx.effect(() => installSyncMcp(ctx, service, shared.runtime));
     ctx.effect(() => registerControl(ctx, '/dogo-memos', service));
     tools(ctx, service);
   });

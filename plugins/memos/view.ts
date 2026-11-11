@@ -188,6 +188,20 @@ export function createMemosView(React: any, ui: any) {
         clearInterval(timer);
       };
     }, [localFirst, busy, detail]);
+    React.useEffect(() => {
+      if (!localFirst || !status.loggedIn) return;
+      let active = true;
+      void control('sync-now')
+        .then((next: Dict) => {
+          if (active && next) setSyncState(next);
+        })
+        .catch(() => {
+          // Opening the local memo view must not depend on the sync request.
+        });
+      return () => {
+        active = false;
+      };
+    }, [localFirst, status.loggedIn]);
     const newMemo = () => {
       rememberFocus();
       const value = localDraft() || {

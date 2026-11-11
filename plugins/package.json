@@ -10,6 +10,7 @@
     "pack": "pnpm build && node scripts/pack.mjs"
   },
   "devDependencies": {
+    "@modelcontextprotocol/sdk": "1.32.2",
     "@types/node": "^24.0.0",
     "@types/ws": "^8.5.13",
     "esbuild": "0.25.12",

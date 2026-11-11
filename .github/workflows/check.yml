@@ -46,3 +46,39 @@ jobs:
       - run: uv run --locked pytest -q
         env:
           DOGO_DATA_DIR: ${{ runner.temp }}/dogo-ci
+
+  rust-memos:
+    runs-on: ubuntu-latest
+    timeout-minutes: 20
+    defaults:
+      run:
+        working-directory: server-rust
+    steps:
+      - uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262 # v4
+        with:
+          persist-credentials: false
+      - run: rustup toolchain install 1.95.0 --profile minimal --component rustfmt --component clippy
+      - run: cargo +1.95.0 fmt --check
+      - run: cargo +1.95.0 clippy --locked --all-targets -- -D warnings
+      - run: cargo +1.95.0 test --locked
+      - uses: actions/setup-node@49933ea5288caeca8642d1e84afbd3f7d6820020 # v4
+        with:
+          node-version: '22'
+      - run: npm install --global pnpm@9.15.4
+      - run: pnpm --dir ../plugins install --frozen-lockfile
+      - run: cargo +1.95.0 build --locked
+      - name: Test plugin synchronization against Rust service
+        shell: bash
+        run: |
+          set -euo pipefail
+          runtime_dir="$(mktemp -d)"
+          DOGO_RUST_DATA_DIR="$runtime_dir" DOGO_RUST_INVITE_CODE=synthetic-invitation DOGO_RUST_LISTEN=127.0.0.1:19091 ./target/debug/dogo-memo-server &
+          service_pid=$!
+          trap 'kill "$service_pid" 2>/dev/null || true; wait "$service_pid" 2>/dev/null || true; rm -rf -- "$runtime_dir"' EXIT
+          ready=0
+          for attempt in {1..30}; do
+            if curl --silent --fail http://127.0.0.1:19091/health >/dev/null; then ready=1; break; fi
+            sleep 1
+          done
+          test "$ready" -eq 1
+          DOGO_RUST_TEST_URL=http://127.0.0.1:19091 DOGO_RUST_TEST_INVITE=synthetic-invitation pnpm --dir ../plugins exec vitest run tests/memo-rust-live.test.ts
