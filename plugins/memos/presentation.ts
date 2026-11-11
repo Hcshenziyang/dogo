@@ -9,13 +9,26 @@ export function memoWithDraft(memo: Dict, saved: Dict | null): Dict {
     updated_at: memo.updated_at,
     created_at: memo.created_at,
     dispatch: memo.dispatch,
+    sync_status: memo.sync_status,
   };
 }
-export function memoProjectTone(project = ''): string {
-  if (!project) return '';
-  const hash = Array.from(project).reduce((sum, char) => (sum * 31 + char.charCodeAt(0)) >>> 0, 0);
-  return ['blue', 'amber', 'green', 'purple'][hash % 4];
+
+export function memoSyncIndicator(memo: Dict, localFirst: boolean) {
+  if (memo.sync_status === 'conflict')
+    return {
+      icon: 'warning',
+      label: memo.dirty ? '同步冲突，草稿未保存' : '同步冲突',
+      tone: 'warning',
+    };
+  if (memo.dirty || (localFirst && memo.sync_status !== 'synced'))
+    return {
+      icon: 'cloud-off',
+      label: memo.dirty ? '未同步，草稿未保存' : '未同步',
+      tone: 'muted',
+    };
+  return { icon: 'cloud', label: '已同步', tone: 'synced' };
 }
+
 export function visibleMemos(memos: Dict[], search: string, sort: string): Dict[] {
   const query = search.trim().toLocaleLowerCase();
   const timestamp = (value: unknown) => {
@@ -24,12 +37,7 @@ export function visibleMemos(memos: Dict[], search: string, sort: string): Dict[
     return Number.isNaN(result) ? 0 : result;
   };
   return memos
-    .filter((m) =>
-      [m.content, m.project, m.category, m.tagText, ...(m.tags || [])]
-        .join(' ')
-        .toLocaleLowerCase()
-        .includes(query),
-    )
+    .filter((m) => (m.content || '').toLocaleLowerCase().includes(query))
     .sort((a, b) =>
       sort === 'title'
         ? memoTitle(a.content).localeCompare(memoTitle(b.content), 'zh-CN')

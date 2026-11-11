@@ -3,6 +3,7 @@ import { createUI } from './ui.js';
 import { styles } from './styles.js';
 import { readLocal, writeLocal, type Control, type Dict } from './presentation.js';
 import { createMemosView } from '../memos/view.js';
+import { registerMemoPicker } from '../memos/conversation.js';
 import { createDevicesView } from '../devices/view.js';
 
 declare const window: any;
@@ -470,6 +471,7 @@ export function registerClient(kind: 'memos' | 'devices', title: string) {
           if (!result.ok) throw Error(result.error?.message || 'DogO 请求失败');
           return result.value;
         };
+        if (kind === 'memos') registerMemoPicker(ctx, control, Icon, h);
         ctx.slots.inject('main', () =>
           ctx.slots.register(
             { name: 'main', key: 'dogo-' + kind, inject: () => ({ control }) },

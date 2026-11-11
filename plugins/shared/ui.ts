@@ -18,6 +18,12 @@ export function createUI(React: any) {
     back: ['m14 6-6 6 6 6'],
     folder: ['M3 6h7l2 2h9v12H3V6z'],
     cloud: ['M6 18a5 5 0 0 1-1-10 7 7 0 0 1 13 0 5 5 0 0 1 0 10', 'm8 14 3 3 5-5'],
+    'cloud-off': [
+      'M4 4 20 20',
+      'M5.5 8.2A5 5 0 0 0 6 18h8',
+      'M8.4 5.7A7 7 0 0 1 18 8a5 5 0 0 1 1.4 9.4',
+    ],
+    warning: ['M12 3 2 21h20L12 3z', 'M12 9v5M12 17v.1'],
     send: ['m4 4 18 8-18 8 4-8-4-8z', 'M8 12h14'],
     monitor: ['M3 4h18v13H3z', 'M8 21h8M12 17v4'],
     phone: ['M7 2h10v20H7z', 'M10 18h4'],
