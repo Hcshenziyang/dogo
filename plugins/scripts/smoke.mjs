@@ -33,7 +33,7 @@ async function until(fn, timeout = 15000) {
   }
   throw Error('Integration wait timed out');
 }
-const controlURL = 'http://127.0.0.1:18185/dogo-memos/status';
+const controlURL = 'http://127.0.0.1:18185/dogo-devices/status';
 assert.equal((await fetch(controlURL, { method: 'POST' })).status, 401);
 assert.equal(
   (
@@ -49,34 +49,12 @@ const pass = (test) => {
   results.push({ test, passed: true });
   console.log('PASS', test);
 };
-if (process.argv.includes('--tools')) {
-  const status = await rpc('devices', 'status');
-  await until(async () => (await rpc('devices', 'status')).consumer.online);
-  const marker = 'toolmemo-' + crypto.randomUUID(),
-    sessionId = 'dogo-' + crypto.randomUUID();
-  const remote = async (method, args) =>
-    (await rpc('devices', 'remote', { device_id: status.deviceId, method, args })).value;
-  await remote('create', { sessionId });
-  await remote('prompt', { sessionId, requestId: marker, text: marker });
-  await until(async () => {
-    const snapshot = await remote('snapshot', { sessionId });
-    await writeFile(cache + '/tool-snapshot.json', JSON.stringify(snapshot));
-    return JSON.stringify(snapshot).includes('TOOL_COMPLETE:' + marker);
-  });
-  const list = await rpc('memos', 'list', { project: 'tool-eval' });
-  assert(list.items.some((m) => m.content === marker));
-  const snapshot = JSON.parse(await readFile(cache + '/tool-snapshot.json', 'utf8'));
-  assert(JSON.stringify(snapshot).includes('dogo_list_memos'));
-  assert(!JSON.stringify(snapshot).includes('"isError":true'));
-  pass('real-native-agent-loop-executes-memo-write-and-read-tools');
-} else if (process.argv.includes('--after-restart')) {
+if (process.argv.includes('--after-restart')) {
   const saved = JSON.parse(await readFile(cache + '/smoke-state.json', 'utf8'));
   const status = await rpc('devices', 'status');
   assert(status.loggedIn);
   assert.equal(status.deviceId, saved.deviceId);
   await until(async () => (await rpc('devices', 'status')).consumer.online);
-  const memo = await rpc('memos', 'get', { id: saved.memoId });
-  assert.equal(memo.dispatch.native_session_id, saved.sessionId);
   const snapshot = (
     await rpc('devices', 'remote', {
       device_id: saved.deviceId,
@@ -87,38 +65,24 @@ if (process.argv.includes('--tools')) {
   assert(JSON.stringify(snapshot).includes(saved.marker));
   pass('installed-plugin-restart-restores-auth-device-and-history');
 } else {
-  const status = await rpc('memos', 'login', {
+  const status = await rpc('devices', 'login', {
     server: process.env.EVAL_SERVER || 'http://127.0.0.1:18184',
     ...account,
     name: 'Plugin Host B',
   });
-  assert.equal((await rpc('devices', 'status')).deviceId, status.deviceId);
-  pass('two-independent-plugins-share-login');
-  await rpc('devices', 'configure', { enabled: false, cwd: cache });
-  const marker = 'queue-' + crypto.randomUUID();
-  const memo = await rpc('memos', 'submit', {
-    method: 'create',
-    data: {
-      request_id: crypto.randomUUID(),
-      content: '插件真实链路测试',
-      project: 'eval',
-      dispatch: { instruction: marker, target_device_id: status.deviceId },
-    },
-  });
-  assert.equal(memo.dispatch.status, 'pending');
-  pass('memo-plugin-saves-offline-dispatch');
+  pass('device-plugin-login');
   await rpc('devices', 'configure', { enabled: true, cwd: cache });
-  const accepted = await until(async () => {
-    const m = await rpc('memos', 'get', { id: memo.id });
-    return m.dispatch.status === 'accepted' && m;
-  });
-  const sessionId = accepted.dispatch.native_session_id;
+  await until(async () => (await rpc('devices', 'status')).consumer.online);
+  const marker = 'queue-' + crypto.randomUUID();
+  const sessionId = 'dogo-' + crypto.randomUUID();
   const remote = async (method, args) =>
     (await rpc('devices', 'remote', { device_id: status.deviceId, method, args })).value;
+  await remote('create', { sessionId });
+  await remote('prompt', { sessionId, requestId: crypto.randomUUID(), text: marker });
   await until(async () =>
     JSON.stringify(await remote('snapshot', { sessionId })).includes('EVAL_REPLY:' + marker),
   );
-  pass('installed-device-plugin-receives-runs-and-acks-real-native-session');
+  pass('installed-device-plugin-creates-and-runs-native-session');
   const listing = await remote('list', {});
   assert(listing.items.some((s) => s.sessionId === sessionId));
   const text = 'continue-' + crypto.randomUUID(),
@@ -160,32 +124,14 @@ if (process.argv.includes('--tools')) {
     ),
   );
   pass('remote-stop-cancels-the-native-running-turn');
-  const changed = await rpc('memos', 'submit', {
-    method: 'append',
-    id: memo.id,
-    data: { revision: memo.revision, content: '追加' },
-  });
-  assert(changed.content.includes('追加'));
-  await assert.rejects(() =>
-    rpc('memos', 'submit', {
-      method: 'append',
-      id: memo.id,
-      data: { revision: memo.revision, content: '冲突' },
-    }),
-  );
-  assert.equal((await rpc('memos', 'pending')).data.content, '冲突');
-  await rpc('memos', 'discard');
-  pass('memo-write-conflict-keeps-original-pending-operation');
   await writeFile(
     cache + '/smoke-state.json',
-    JSON.stringify({ deviceId: status.deviceId, memoId: memo.id, sessionId, marker }),
+    JSON.stringify({ deviceId: status.deviceId, sessionId, marker }),
   );
 }
 await writeFile(
   cache +
-    (process.argv.includes('--tools')
-      ? '/smoke-tools-results.json'
-      : process.argv.includes('--after-restart')
+    (process.argv.includes('--after-restart')
         ? '/smoke-restart-results.json'
         : '/smoke-results.json'),
   JSON.stringify(results, null, 2),

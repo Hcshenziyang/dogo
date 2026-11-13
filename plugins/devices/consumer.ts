@@ -1,8 +1,7 @@
 import WebSocket from 'ws';
-import { Api, accountKey } from '../shared/api.js';
+import { Api } from '../shared/api.js';
 import { Store } from '../shared/store.js';
 import { NativeSessions } from './native.js';
-import { Delivery } from './delivery.js';
 import { realpath, stat } from 'node:fs/promises';
 import { isAbsolute } from 'node:path';
 import { homedir } from 'node:os';
@@ -23,17 +22,13 @@ export class Consumer {
   private attempt = 0;
   private generation = 0;
   private stopped = false;
-  private serial = Promise.resolve();
   private active = 0;
-  private delivery: Delivery;
   private wake = () => this.restart();
   constructor(
     private api: Api,
     private store: Store,
     private native: NativeSessions,
-  ) {
-    this.delivery = new Delivery(store, native);
-  }
+  ) {}
   async start() {
     this.config = await this.store.read('consumer', this.config);
     this.api.changes.add(this.wake);
@@ -133,23 +128,6 @@ export class Consumer {
         }
         if (m.type === 'ping') send({ type: 'pong' });
         if (m.type === 'error') this.error = String(m.code ?? 'device_error');
-        if (m.type === 'dispatch') {
-          this.serial = this.serial.then(async () => {
-            if (generation !== this.generation) return;
-            try {
-              const ack = await this.delivery.receive(
-                m.dispatch,
-                accountKey(state.server, state.username),
-                state.tokens.device_id,
-                this.config.cwd,
-              );
-              send(ack);
-              this.error = '';
-            } catch (e) {
-              this.error = (e as Error).message;
-            }
-          });
-        }
         if (m.type === 'remote.call') {
           if (this.active >= 8) {
             send({

@@ -1,0 +1,15 @@
+[Unit]
+Description=DogO Rust memo SQLite backup (14 snapshots)
+
+[Service]
+Type=oneshot
+User=root
+Group=root
+ExecStart=/usr/bin/python3 /opt/dogo-rust/backup.py
+UMask=0077
+NoNewPrivileges=true
+PrivateTmp=true
+ProtectSystem=strict
+ProtectHome=true
+ReadWritePaths=/var/backups/dogo-rust /var/lib/dogo-rust
+MemoryMax=128M

@@ -1,18 +1,6 @@
 export type Dict = Record<string, any>;
 export type Control = (method: string, payload?: unknown) => Promise<any>;
 
-export function memoTitle(content = ''): string {
-  return (
-    content
-      .split('\n')
-      .find((line) => line.trim())
-      ?.replace(/^\s*#+\s*/, '')
-      .trim() || '未命名备忘录'
-  );
-}
-export function memoExcerpt(content = ''): string {
-  return content.trim().split('\n').slice(1).join(' ').replace(/[#*`]/g, '').trim();
-}
 export function dateLabel(value: string | number | undefined): string {
   if (!value) return '';
   const date = new Date(typeof value === 'number' && value < 1e12 ? value * 1000 : value);
@@ -24,9 +12,6 @@ export function dateLabel(value: string | number | undefined): string {
     minute: '2-digit',
     hour12: false,
   });
-}
-export function draftKey(identity: string, id = 'new'): string {
-  return 'dogo.editor.' + identity + '.' + id;
 }
 export function readLocal(key: string, fallback: any = null): any {
   try {
@@ -42,22 +27,6 @@ export function writeLocal(key: string, value: unknown) {
     throw Error('本机草稿未能保存。请先复制内容，避免离开页面后丢失。');
   }
 }
-export function blankMemo(): Dict {
-  return {
-    content: '',
-    project: '',
-    category: '',
-    tags: [],
-    active: true,
-    request_id: crypto.randomUUID(),
-  };
-}
-export const deliveryLabels: Record<string, string> = {
-  pending: '等待设备接收',
-  leased: '正在确认接收',
-  accepted: '设备已接收',
-  cancelled: '已取消',
-};
 export interface ChatItem {
   id: string;
   role: 'user' | 'assistant' | 'tool' | 'status';

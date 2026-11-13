@@ -63,8 +63,8 @@ describe('JSON requests through an HTTPS proxy', () => {
       req.on('data', (chunk) => chunks.push(chunk));
       req.on('end', () => {
         const body = Buffer.concat(chunks).toString('utf8');
-        // Like FastAPI, a memo deletion requires its revision in the JSON body.
-        res.statusCode = req.url === '/api/memos/memo' && !body ? 422 : 200;
+        // The upstream may require a revision in a DELETE request body.
+        res.statusCode = req.url === '/api/items/item' && !body ? 422 : 200;
         res.setHeader('Content-Type', 'application/json');
         res.end(
           JSON.stringify({ method: req.method, body, length: req.headers['content-length'] }),
@@ -104,9 +104,9 @@ describe('JSON requests through an HTTPS proxy', () => {
   });
 
   it.each([
-    ['DELETE', '/api/memos/memo', { revision: 2 }],
-    ['POST', '/api/memos', { request_id: 'new', content: '午饭 35 元 🍜' }],
-    ['PUT', '/api/memos/memo', { revision: 2, content: '更新备忘录' }],
+    ['DELETE', '/api/items/item', { revision: 2 }],
+    ['POST', '/api/items', { request_id: 'new', content: '示例 35 元 🍜' }],
+    ['PUT', '/api/items/item', { revision: 2, content: '更新内容' }],
     ['DELETE', '/api/devices/device', undefined],
   ])('delivers the %s %s body intact', async (method, path, data) => {
     vi.stubEnv('HTTPS_PROXY', proxyURL);

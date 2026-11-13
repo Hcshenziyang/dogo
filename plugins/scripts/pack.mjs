@@ -3,7 +3,7 @@ import { resolve } from 'node:path';
 import { spawnSync } from 'node:child_process';
 const destination = resolve('release');
 await mkdir(destination, { recursive: true });
-for (const name of ['memos', 'devices']) {
+for (const name of ['devices', 'workspace']) {
   const result = spawnSync('pnpm', ['pack', '--pack-destination', destination], {
     cwd: resolve(name),
     stdio: 'inherit',

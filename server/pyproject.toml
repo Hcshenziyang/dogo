@@ -1,7 +1,7 @@
 [project]
 name = "dogo-server"
 version = "0.1.0"
-description = "DogO personal memo and device delivery service"
+description = "DogO authentication, device and remote-session service"
 requires-python = ">=3.13"
 dependencies = [
   "fastapi>=0.115,<1",

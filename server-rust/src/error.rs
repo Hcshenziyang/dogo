@@ -34,8 +34,8 @@ impl ApiError {
     }
 }
 
-impl From<sqlx::Error> for ApiError {
-    fn from(_: sqlx::Error) -> Self {
+impl From<diesel::result::Error> for ApiError {
+    fn from(_: diesel::result::Error) -> Self {
         Self::internal()
     }
 }

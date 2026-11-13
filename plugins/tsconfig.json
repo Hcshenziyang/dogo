@@ -12,8 +12,8 @@
   "include": [
     "shared/**/*.ts",
     "vendor/**/*.ts",
-    "memos/**/*.ts",
     "devices/**/*.ts",
+    "workspace/**/*.ts",
     "tests/**/*.ts",
     "types.d.ts"
   ]

@@ -4,7 +4,6 @@ import { join } from 'node:path';
 import { tmpdir } from 'node:os';
 import { Api, serverURL } from '../shared/api.js';
 import { Store } from '../shared/store.js';
-import { Runtime } from '../shared/runtime.js';
 const paths: string[] = [];
 afterEach(async () => {
   for (const p of paths.splice(0)) await rm(p, { recursive: true, force: true });
@@ -95,28 +94,5 @@ describe('authentication and mutation boundaries', () => {
     expect(api.state?.username).toBe('alice');
     expect(await credentials.readRecord()).toBeDefined();
     expect(fetcher).toHaveBeenCalledTimes(2);
-  });
-  it('keeps the exact mutation after an unknown result and refuses automatic revision changes', async () => {
-    const { store, credentials } = await setup();
-    const runtime = new Runtime(store, credentials);
-    runtime.api.state = {
-      server: 'https://example.test',
-      username: 'alice',
-      tokens,
-      expiresAt: Date.now() + 100000,
-    };
-    const execute = vi
-      .spyOn(runtime, 'execute')
-      .mockRejectedValueOnce(Error('timeout'))
-      .mockResolvedValueOnce({ id: 'memo' });
-    const op = { method: 'append', id: 'memo', data: { revision: 2, content: '35元' } };
-    await expect(runtime.submit(op)).rejects.toThrow('timeout');
-    expect(await runtime.pending()).toEqual(op);
-    await expect(runtime.submit({ ...op, data: { revision: 3, content: '35元' } })).rejects.toThrow(
-      '待确认',
-    );
-    await runtime.submit(undefined, true);
-    expect(execute.mock.calls[1][0]).toEqual(op);
-    expect(await runtime.pending()).toBeNull();
   });
 });

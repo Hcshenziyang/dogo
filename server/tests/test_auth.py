@@ -5,8 +5,8 @@ from starlette.websockets import WebSocketDisconnect
 
 
 def test_rest_and_mcp_require_authentication(client):
-    assert client.get("/api/memos").status_code == 401
-    assert client.post("/api/memos", json={}).status_code == 401
+    assert client.get("/api/devices").status_code == 401
+    assert client.get("/api/auth/me").status_code == 401
     assert client.post("/mcp/", json={}).status_code == 401
     assert client.get("/health").status_code == 200
     assert (
@@ -30,7 +30,7 @@ def test_invalid_jwt_claims_are_rejected(client, settings, change):
     payload.update(change)
     forged = jwt.encode(payload, settings.jwt_secret, algorithm="HS256")
     assert (
-        client.get("/api/memos", headers={"Authorization": f"Bearer {forged}"}).status_code == 401
+        client.get("/api/devices", headers={"Authorization": f"Bearer {forged}"}).status_code == 401
     )
 
 

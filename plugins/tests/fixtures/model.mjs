@@ -36,44 +36,6 @@ class Fixture extends LlmAdapter {
       .filter((b) => b.type === 'text')
       .map((b) => b.text)
       .join('\n');
-    const marker = [...input.matchAll(/toolmemo-[0-9a-f-]{36}/g)].at(-1)?.[0];
-    if (marker) {
-      const blocks = options.messages.flatMap((m) => m.content);
-      const calls = blocks.filter((b) => b.type === 'tool-call' && b.id.startsWith(marker));
-      const name =
-        calls.length === 0 ? 'dogo_write_memo' : calls.length === 1 ? 'dogo_list_memos' : undefined;
-      await appendFile(
-        process.env.EVAL_CACHE + '/tool-fixture.jsonl',
-        JSON.stringify({
-          marker,
-          names: (options.tools || []).map((t) => t.name),
-          next: name || 'done',
-        }) + '\n',
-      );
-      if (name) {
-        const args =
-          name === 'dogo_write_memo'
-            ? {
-                data: {
-                  method: 'create',
-                  data: { request_id: marker, content: marker, project: 'tool-eval' },
-                },
-              }
-            : { project: 'tool-eval' };
-        yield {
-          type: 'tool-call-delta',
-          index: 0,
-          id: marker + '-' + calls.length,
-          name,
-          argumentsDelta: JSON.stringify(args),
-        };
-        yield { type: 'finish', reason: { kind: 'tool-calls' } };
-      } else {
-        yield { type: 'text-delta', index: 0, text: 'TOOL_COMPLETE:' + marker };
-        yield { type: 'finish', reason: { kind: 'stop' } };
-      }
-      return;
-    }
     // DSH appends permission/context user messages; select our unique task marker.
     const text =
       [...input.matchAll(/(?:disconnect|continue|queue)-[0-9a-f-]{36}/g)].at(-1)?.[0] ??

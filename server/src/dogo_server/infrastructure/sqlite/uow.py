@@ -1,4 +1,4 @@
-"""One connection/transaction spans identity, memo and dispatch repositories."""
+"""Transactional access to identity data."""
 
 from collections.abc import Iterator
 from contextlib import contextmanager
@@ -6,14 +6,11 @@ from dataclasses import dataclass
 
 from .database import Database
 from .identity import SQLiteIdentityRepository
-from .repositories import SQLiteDispatchRepository, SQLiteMemoRepository
 
 
 @dataclass
 class SQLiteUnitOfWork:
     identities: SQLiteIdentityRepository
-    memos: SQLiteMemoRepository
-    dispatches: SQLiteDispatchRepository
 
 
 class SQLiteUnitOfWorkFactory:
@@ -31,6 +28,4 @@ class SQLiteUnitOfWorkFactory:
                 connection.execute("BEGIN")
             yield SQLiteUnitOfWork(
                 SQLiteIdentityRepository(connection),
-                SQLiteMemoRepository(connection),
-                SQLiteDispatchRepository(connection),
             )

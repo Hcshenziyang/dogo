@@ -450,7 +450,7 @@ export function createDevicesView(React: any, ui: any) {
                       ? '手机不执行 Agent。请从左侧选择一台在线电脑继续会话。'
                       : selected.id === status.deviceId
                         ? '设置默认执行目录并开启本机访问。仅操作其他电脑时不需要开启。'
-                        : '在这台电脑上打开 DSH 并启用 DogO 设备。也可以先通过备忘录留下指令，等待它上线。',
+                        : '在这台电脑上打开 DSH 并启用 DogO 设备。',
                   )
                 : h(
                     'div',

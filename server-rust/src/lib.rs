@@ -1,7 +1,7 @@
 mod auth;
 mod db;
 mod error;
-mod memos;
+mod schema;
 
 use argon2::{
     password_hash::{rand_core::OsRng, PasswordHasher, SaltString},
@@ -15,7 +15,6 @@ use axum::{
 use error::ApiError;
 use serde::de::DeserializeOwned;
 use sha2::{Digest, Sha256};
-use sqlx::SqlitePool;
 use std::{
     path::Path,
     sync::Arc,
@@ -24,7 +23,7 @@ use std::{
 
 #[derive(Clone)]
 pub struct AppState {
-    pool: SqlitePool,
+    pool: db::Pool,
     jwt_secret: Arc<[u8]>,
     invite_hash: Option<[u8; 32]>,
     dummy_hash: Arc<str>,
@@ -102,12 +101,6 @@ pub fn router(state: AppState) -> Router {
         .route("/api/auth/me", get(auth::me))
         .route("/api/devices", get(auth::devices))
         .route("/api/devices/{device_id}", delete(auth::revoke_device))
-        .route("/api/memos", get(memos::list).post(memos::create))
-        .route(
-            "/api/memos/{memo_id}",
-            get(memos::get).put(memos::update).delete(memos::remove),
-        )
-        .route("/api/memos/{memo_id}/append", post(memos::append))
         .layer(DefaultBodyLimit::max(2 * 1024 * 1024))
         .with_state(state)
 }

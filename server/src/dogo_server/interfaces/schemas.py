@@ -5,7 +5,6 @@ from typing import Annotated, Literal
 from pydantic import BaseModel, ConfigDict, Field, StringConstraints
 
 Identifier = Annotated[str, StringConstraints(min_length=1, max_length=128)]
-Content = Annotated[str, StringConstraints(max_length=256_000)]
 Name = Annotated[str, StringConstraints(strip_whitespace=True, min_length=1, max_length=100)]
 
 
@@ -23,57 +22,6 @@ class Login(Input):
 
 class Refresh(Input):
     refresh_token: str = Field(min_length=32, max_length=256)
-
-
-class DispatchInstruction(Input):
-    instruction: str = Field(min_length=1, max_length=32_000)
-    target_device_id: Identifier
-
-
-class MemoFields(Input):
-    content: Content
-    project: Annotated[str, StringConstraints(strip_whitespace=True, max_length=100)] = ""
-    category: str = Field(default="", max_length=100)
-    tags: list[Name] = Field(default_factory=list, max_length=30)
-    active: bool = True
-
-
-class PlanConfig(Input):
-    instruction: str = Field(min_length=1, max_length=32_000)
-    target_device_id: Identifier
-    mode: Literal["once", "daily", "weekly", "monthly"]
-    enabled: bool = True
-    timezone: str = Field(default="Asia/Shanghai", min_length=1, max_length=100)
-    run_at: int | None = Field(default=None, gt=0, lt=253_370_764_800_000)
-    time: str = Field(default="09:00", pattern=r"^(?:[01]\d|2[0-3]):[0-5]\d$")
-    weekday: int | None = Field(default=None, ge=0, le=6)
-    day: int | None = Field(default=None, ge=1, le=31)
-
-
-class MemoCreate(MemoFields):
-    request_id: Identifier
-    dispatch: DispatchInstruction | None = None
-    plan: PlanConfig | None = None
-
-
-class MemoUpdate(MemoFields):
-    revision: int = Field(ge=1)
-    plan: PlanConfig | None = None
-
-
-class MemoDelete(Input):
-    revision: int = Field(ge=1)
-
-
-class MemoAppend(MemoDelete):
-    content: Content
-
-
-class DispatchAck(Input):
-    type: Literal["dispatch.ack"]
-    dispatch_id: Identifier
-    lease_token: Identifier
-    native_session_id: Identifier
 
 
 class RemoteCall(Input):

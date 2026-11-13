@@ -9,14 +9,11 @@ from mcp.types import ToolAnnotations
 from ..application.identity import IdentityService
 from ..config import Settings
 from ..domain.errors import DomainError
-from . import commands
 from .errors import error_response
-from .schemas import MemoAppend, MemoCreate, MemoDelete, MemoUpdate
 
 
 class MCPDependencies(Protocol):
     identity: IdentityService
-    memos: Any
     settings: Settings
 
 
@@ -43,7 +40,7 @@ def create_mcp(container: MCPDependencies) -> FastMCP:
     settings = container.settings
     server = FastMCP(
         "DogO",
-        instructions="Manage personal memos. Saving content does not dispatch work unless explicitly requested.",
+        instructions="List registered devices for the authenticated account.",
         stateless_http=True,
         json_response=True,
         streamable_http_path="/",
@@ -55,7 +52,6 @@ def create_mcp(container: MCPDependencies) -> FastMCP:
         ),
     )
     read = ToolAnnotations(readOnlyHint=True, openWorldHint=False)
-    write = ToolAnnotations(idempotentHint=True, openWorldHint=False)
 
     async def call(ctx, service, method, *args, **kwargs):
         request = ctx.request_context.request
@@ -69,42 +65,6 @@ def create_mcp(container: MCPDependencies) -> FastMCP:
             )
         except DomainError as error:
             raise ToolError(f"{error.code}: {error.message}") from None
-
-    @server.tool(annotations=read)
-    async def list_memos(
-        ctx: Context,
-        project: str | None = None,
-        cursor: str = "",
-        limit: int = 100,
-        include_deleted: bool = False,
-    ) -> dict[str, Any]:
-        """List this account's memos; continue with next_cursor when present."""
-        return await call(ctx, "memos", "list_memos", project, cursor, limit, include_deleted)
-
-    @server.tool(annotations=read)
-    async def get_memo(memo_id: str, ctx: Context) -> dict[str, Any]:
-        """Read a memo and its current revision, including its deletion marker."""
-        return await call(ctx, "memos", "get_memo", memo_id)
-
-    @server.tool(annotations=write)
-    async def create_memo(data: MemoCreate, ctx: Context) -> dict[str, Any]:
-        """Save content. Include dispatch only when explicitly asked to execute it; reuse request_id on retry."""
-        return await call(ctx, "memos", "create_memo", commands.memo_create(data))
-
-    @server.tool(annotations=write)
-    async def update_memo(memo_id: str, data: MemoUpdate, ctx: Context) -> dict[str, Any]:
-        """Replace memo fields using the revision you read. This never re-dispatches prior work."""
-        return await call(ctx, "memos", "update_memo", memo_id, commands.memo_update(data))
-
-    @server.tool(annotations=ToolAnnotations(destructiveHint=True, idempotentHint=True))
-    async def delete_memo(memo_id: str, data: MemoDelete, ctx: Context) -> dict[str, Any]:
-        """Soft-delete a memo and cancel unsent work. In-flight delivery blocks deletion; accepted DSH work continues."""
-        return await call(ctx, "memos", "delete_memo", memo_id, commands.memo_delete(data))
-
-    @server.tool(annotations=write)
-    async def append_memo(memo_id: str, data: MemoAppend, ctx: Context) -> dict[str, Any]:
-        """Append exact text once at a known revision. On conflict, read and reconcile; never blindly rebase."""
-        return await call(ctx, "memos", "append_memo", memo_id, commands.memo_append(data))
 
     @server.tool(annotations=read)
     async def list_devices(ctx: Context) -> list[dict[str, Any]]:

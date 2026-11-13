@@ -1,19 +1,7 @@
 import { describe, expect, it } from 'vitest';
-import {
-  conversation,
-  draftKey,
-  memoExcerpt,
-  memoTitle,
-  safeLink,
-} from '../shared/presentation.js';
+import { conversation, safeLink } from '../shared/presentation.js';
 
 describe('client data boundaries', () => {
-  it('keeps drafts separate between memos and accounts', () => {
-    expect(draftKey('https://a.test/alice', 'one')).not.toBe(
-      draftKey('https://a.test/alice', 'two'),
-    );
-    expect(draftKey('https://a.test/alice', 'one')).not.toBe(draftKey('https://a.test/bob', 'one'));
-  });
   it('renders user and assistant text without duplicating tool-call blocks', () => {
     const record = (type: string, data: unknown) => ({ event: { type, data } });
     const result = conversation({
@@ -53,12 +41,6 @@ describe('client data boundaries', () => {
     ])
       expect(safeLink(value)).toBeUndefined();
     expect(safeLink('https://example.com/article')).toBe('https://example.com/article');
-    expect(memoTitle('\n# 新想法\n正文')).toBe('新想法');
-  });
-  it('shows only actual body text in compact memo previews', () => {
-    expect(memoExcerpt('Only a title')).toBe('');
-    expect(memoExcerpt('\n# 标题\n\n正文 **要点**\n下一行')).toBe('正文 要点 下一行');
-    expect(memoExcerpt('   ')).toBe('');
   });
   it('surfaces a native model error as an error rather than a completed reply', () => {
     const result = conversation({

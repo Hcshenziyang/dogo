@@ -8,7 +8,7 @@ from starlette.middleware.trustedhost import TrustedHostMiddleware
 from .bootstrap import create_container
 from .config import Settings
 from .domain.errors import DomainError
-from .interfaces import auth, devices, memos, remote, websocket
+from .interfaces import auth, devices, remote, websocket
 from .interfaces.errors import domain_error_handler
 from .interfaces.mcp import MCPAuthentication, create_mcp
 
@@ -21,7 +21,7 @@ def create_app(settings: Settings | None = None) -> FastAPI:
     @asynccontextmanager
     async def lifespan(app):
         async with (
-            container.notifications.run(container.deliveries, container.scheduler),
+            container.notifications.run(),
             mcp.session_manager.run(),
         ):
             yield
@@ -35,7 +35,7 @@ def create_app(settings: Settings | None = None) -> FastAPI:
     def health():
         return {"status": "ok"}
 
-    for router in (auth.router, devices.router, memos.router, remote.router, websocket.router):
+    for router in (auth.router, devices.router, remote.router, websocket.router):
         app.include_router(router)
     app.mount("/mcp", MCPAuthentication(mcp_app, container))
     return app

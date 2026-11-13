@@ -30,10 +30,10 @@ try {
   const skip = page.getByRole('button', { name: '稍后配置', exact: true });
   await skip.waitFor({ state: 'visible', timeout: 2000 }).catch(() => {});
   if (await skip.isVisible()) await skip.click();
-  await page.getByRole('button', { name: 'DogO 备忘录', exact: true }).click();
+  await page.getByRole('button', { name: 'DogO 设备', exact: true }).click();
   const login = page.getByRole('button', { name: '登录', exact: true });
   const signedIn = await page.evaluate(async () => {
-    const r = await fetch('/dogo-memos/status', {
+    const r = await fetch('/dogo-devices/status', {
       method: 'POST',
       headers: { 'Content-Type': 'application/json' },
       body: JSON.stringify({
@@ -54,15 +54,6 @@ try {
     await login.click();
   }
   await page.getByRole('button', { name: 'DogO 设置', exact: true }).waitFor();
-  const marker = 'UI_MEMO_' + crypto.randomUUID();
-  await page.getByRole('button', { name: '新建', exact: true }).click();
-  await page.getByRole('button', { name: '属性', exact: true }).click();
-  await page.getByLabel('项目', { exact: true }).fill('ui-eval');
-  await page.getByLabel('备忘录内容').fill(marker);
-  await page.getByRole('button', { name: '保存', exact: true }).click();
-  await page.getByRole('button', { name: new RegExp(marker) }).waitFor();
-  await page.screenshot({ path: cache + '/ui-memos.png' });
-  await page.getByRole('button', { name: 'DogO 设备', exact: true }).click();
   await page.getByRole('button', { name: /^Plugin Host B 在线/ }).waitFor();
   // Select B's row, not the viewing computer A. A's receiving switch remains disabled.
   await page.getByRole('button', { name: /^Plugin Host B 在线/ }).click();
@@ -154,7 +145,7 @@ try {
   assert.deepEqual(errors, []);
   const results = [
     'official-sidebar-and-main-panels',
-    'viewer-ui-login-and-memo-write',
+    'viewer-ui-login',
     'distinct-viewer-A-creates-and-prompts-on-B',
     'B-completes-after-viewer-page-closes',
     'no-browser-page-errors',

@@ -70,7 +70,7 @@ async fn main() -> Result<(), Box<dyn std::error::Error + Send + Sync>> {
     .await?;
     let address = env::var("DOGO_RUST_LISTEN").unwrap_or_else(|_| "127.0.0.1:8789".into());
     let listener = tokio::net::TcpListener::bind(&address).await?;
-    eprintln!("DogO memo server listening on {}", listener.local_addr()?);
+    eprintln!("DogO server listening on {}", listener.local_addr()?);
     axum::serve(listener, router(state))
         .with_graceful_shutdown(async {
             let _ = tokio::signal::ctrl_c().await;

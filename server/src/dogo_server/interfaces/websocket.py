@@ -7,9 +7,8 @@ from pydantic import ValidationError
 
 from ..application.remote_ports import RemoteResponse
 from ..domain.errors import DomainError
-from .commands import dispatch_ack
 from .errors import http_status
-from .schemas import DispatchAck, RemoteResult
+from .schemas import RemoteResult
 
 router = APIRouter()
 
@@ -18,7 +17,6 @@ router = APIRouter()
 async def connect(websocket: WebSocket):
     container = websocket.app.state.container
     auth = container.identity
-    deliveries = container.deliveries
     notifications = container.notifications
     relay = container.relay
     settings = container.settings
@@ -52,16 +50,8 @@ async def connect(websocket: WebSocket):
             relay.attach(p.account_id, p.device_id),
         ):
             await websocket.send_json({"type": "connected", "device_id": p.device_id})
-            last_delivery = None
 
             async def push_next():
-                nonlocal last_delivery
-                await asyncio.to_thread(container.scheduler.tick, p.account_id, p.device_id)
-                delivery = await asyncio.to_thread(deliveries.next_delivery, p)
-                key = (delivery["id"], delivery["lease_token"]) if delivery else None
-                if delivery and key != last_delivery:
-                    await websocket.send_json({"type": "dispatch", "dispatch": delivery})
-                last_delivery = key
                 for frame in relay.drain(p.account_id, p.device_id):
                     await websocket.send_json(frame)
 
@@ -82,13 +72,7 @@ async def connect(websocket: WebSocket):
                             raise DomainError("invalid_message", "Expected an object")
                         if len(json.dumps(message, ensure_ascii=False).encode()) > 2 * 1024 * 1024:
                             raise DomainError("remote_too_large", "Device frame too large")
-                        if message.get("type") == "dispatch.ack":
-                            ack = DispatchAck.model_validate(message)
-                            await asyncio.to_thread(deliveries.acknowledge, p, dispatch_ack(ack))
-                            await websocket.send_json(
-                                {"type": "dispatch.acknowledged", "dispatch_id": ack.dispatch_id}
-                            )
-                        elif message.get("type") == "remote.result":
+                        if message.get("type") == "remote.result":
                             await asyncio.to_thread(auth.require_consumer, p)
                             result = RemoteResult.model_validate(message)
                             relay.resolve(

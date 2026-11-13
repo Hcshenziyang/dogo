@@ -10,8 +10,6 @@ class Settings:
     jwt_secret: str | None = field(default=None, repr=False)
     access_seconds: int = 900
     refresh_seconds: int = 30 * 86400
-    scan_seconds: float = 30
-    lease_seconds: int = 60
     allowed_hosts: tuple[str, ...] = ("localhost", "127.0.0.1", "[::1]")
     allowed_origins: tuple[str, ...] = ()
 

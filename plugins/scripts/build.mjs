@@ -1,5 +1,5 @@
 import { build } from 'esbuild';
-for (const name of ['memos', 'devices']) {
+for (const name of ['devices', 'workspace']) {
   await build({
     entryPoints: [`${name}/index.ts`],
     outfile: `${name}/dist/index.js`,

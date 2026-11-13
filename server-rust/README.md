@@ -1,8 +1,8 @@
-# DogO Rust 备忘录服务
+# DogO Rust 服务
 
-这是独立的 Rust 备忘录服务，提供邀请码注册、登录认证及备忘录同步接口。数据目录、数据库和签名密钥均与 `server/` 下的 Python 服务分开；**不读取、兼容或迁移旧账户及备忘录**。当前不支持设备指令、定时计划、远程会话或服务端 MCP；非空 `dispatch` / `plan` 请求会明确拒绝。
+独立 Rust 服务提供邀请码注册、登录认证与设备管理，使用 Diesel ORM 和 diesel-async 访问 SQLite；数据与 `server/` Python 服务分开。当前不提供远程会话中转或服务端 MCP。
 
-接入插件时应使用与旧服务不同的服务地址（域名或端口）：插件按服务地址和账户隔离本机记录，复用旧地址和用户名会沿用旧远端 ID，而新数据库不认识这些 ID。旧账户所属的本机记录不会自动迁入新账户；尚未归属账户的本机记录仍按现有规则在首次登录时归入该账户。
+旧备忘录 API 已移除；此前 Rust 数据库 v1 启动升级到 v2 时，在同一事务删除备忘录表，保留账号、凭据和设备。其他服务或非 DogO 数据库不会被当作 Rust 数据库迁移。数据库历史文件名 `dogo-memo.sqlite3` 暂时保留以便定位原库。
 
 ## 运行
 
@@ -23,17 +23,34 @@ cargo run --release --locked
 
 新建数据目录权限为 0700；已有目录的权限不被修改。数据库包含应用标识，服务拒绝打开不属于本服务的非空数据库。不要将数据目录、邀请码或签名密钥提交到仓库。
 
+## Docker 部署
+
+从仓库根目录为 Linux x86_64 构建镜像：
+
+```sh
+docker buildx build --platform linux/amd64 --load -t dogo-server:local server-rust
+```
+
+`deploy/compose.yaml` 记录当前服务器的旧 Portainer `dogo` 栈配置，镜像及容器仍使用历史名称；它不会自动更新为本地代码。该配置中：镜像只在本机，绑定 `127.0.0.1:8788`，由现有 Nginx 提供 HTTPS；数据保存在 `/var/lib/dogo-rust`，邀请码配置在仅 root 可读的 `/etc/dogo-rust/registration.env`。更新时需要先构建并导入新镜像，再把栈中的镜像标签改为新版本并重新部署；不要启用从远程仓库拉取本地镜像的选项。
+
+服务器保留每日 SQLite 一致性备份，最多 14 份，保存在仅 root 可读的 `/var/backups/dogo-rust`。`deploy/backup.py` 使用 SQLite 备份 API，`dogo-backup.timer` 调用 `deploy/dogo-backup.service` 对应的服务器部署文件。
+
+管理员可在交互终端创建账户，脚本隐藏密码输入并在服务器本机使用邀请码，不向终端显示邀请码：
+
+```sh
+ssh -t -i ~/.ssh/id_ed25519 root@dogo.hcblj.top /opt/dogo-rust/register-user.py
+```
+
+修改邀请码配置后需重新创建容器，使新环境变量生效。
+
 ## 接口
 
 `POST /api/auth/register` 接收 `username`、`password`、`invite_code`，注册后仍需登录。当前密码长度要求 10–256 字符。现有插件登录页尚无注册界面，可使用支持 JSON 的 HTTP 客户端调用注册接口。
 
-其余接口沿用现有备忘录插件需要的响应格式：
+其他接口：
 
 - `POST /api/auth/login`、`POST /api/auth/refresh`、`POST /api/auth/logout`、`GET /api/auth/me`。
 - `GET /api/devices` 和 `DELETE /api/devices/{id}`，用于查看及撤销登录设备；不提供设备在线状态。
-- `GET/POST /api/memos`、`GET/PUT/DELETE /api/memos/{id}`、`POST /api/memos/{id}/append`。列表支持分页和 `include_deleted=true`；修改、追加、删除使用 `revision`。
-
-创建使用账户内稳定的 `request_id` 防止重试重复创建；修改和追加使用版本保护。删除保留标记，客户端可同步到删除状态。服务只保存已同步的备忘录，客户端离线编辑和冲突副本由插件处理。
 
 ## 验证
 
@@ -43,4 +60,4 @@ cargo clippy --locked --all-targets -- -D warnings
 cargo test --locked
 ```
 
-插件的 `tests/memo-rust-live.test.ts` 可通过 `DOGO_RUST_TEST_URL` 和 `DOGO_RUST_TEST_INVITE` 连接正在运行的 Rust 服务；测试会创建账号和备忘录，只应对临时数据库运行。真实 DSH 的登录、MCP 工具和备忘录同步验收范围见仓库 `STATUS.md`。
+测试覆盖账号认证、设备撤销、数据库隔离，以及旧 Rust 数据库清除备忘录并保留账号和设备。线上实际部署版本以 [STATUS.md](../STATUS.md) 为准。

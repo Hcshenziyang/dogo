@@ -16,7 +16,7 @@ import javax.crypto.KeyGenerator;
 import javax.crypto.SecretKey;
 import javax.crypto.spec.GCMParameterSpec;
 
-/** Credentials and drafts stay in app-private storage, encrypted with an Android Keystore key. */
+/** Credentials stay in app-private storage, encrypted with an Android Keystore key. */
 final class SecureStore implements ApiClient.SessionStore {
     private final AtomicFile file;
     private final SecretKey key;
@@ -53,6 +53,13 @@ final class SecureStore implements ApiClient.SessionStore {
     synchronized void put(String name, JSONObject value) throws Exception {
         JSONObject next = Json.copy(state);
         if (value == null) next.remove(name); else Json.put(next, name, value);
+        save(next);
+    }
+    synchronized void removeMemoDrafts() throws Exception {
+        JSONObject next = LegacyMemoCleanup.withoutDrafts(state);
+        if (next.length() != state.length()) save(next);
+    }
+    private void save(JSONObject next) throws Exception {
         Cipher cipher = Cipher.getInstance("AES/GCM/NoPadding");
         cipher.init(Cipher.ENCRYPT_MODE, key);
         byte[] encrypted = cipher.doFinal(next.toString().getBytes(StandardCharsets.UTF_8));

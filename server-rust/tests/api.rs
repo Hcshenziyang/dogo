@@ -168,252 +168,135 @@ async fn invitation_registration_refresh_and_revocation() {
     );
     assert_eq!(
         request(&app, Method::GET, "/api/memos", None, None).await.0,
-        StatusCode::UNAUTHORIZED
-    );
-}
-
-#[tokio::test]
-async fn memo_sync_preserves_versions_tombstones_and_account_boundaries() {
-    let (_dir, app) = setup(Some(INVITE)).await;
-    assert_eq!(register(&app, "alice", INVITE).await.0, StatusCode::CREATED);
-    assert_eq!(register(&app, "bob", INVITE).await.0, StatusCode::CREATED);
-    let a = login(&app, "alice", "device-a").await;
-    let b = login(&app, "alice", "device-b").await;
-    let other = login(&app, "bob", "device-c").await;
-    let create = json!({"request_id":"request-1","content":"第一条","project":"工作","category":"原分类","tags":["a,b"],"active":true});
-    let (status, saved) = request(
-        &app,
-        Method::POST,
-        "/api/memos",
-        Some(create.clone()),
-        Some(token(&a)),
-    )
-    .await;
-    assert_eq!(status, StatusCode::CREATED);
-    let id = saved["id"].as_str().unwrap();
-    let path = format!("/api/memos/{id}");
-    assert_eq!(
-        request(
-            &app,
-            Method::POST,
-            "/api/memos",
-            Some(create.clone()),
-            Some(token(&a))
-        )
-        .await
-        .1["id"],
-        id
-    );
-    assert_eq!(
-        request(
-            &app,
-            Method::POST,
-            "/api/memos",
-            Some(json!({"request_id":"request-1","content":"other"})),
-            Some(token(&a))
-        )
-        .await
-        .0,
-        StatusCode::CONFLICT
-    );
-    assert_eq!(
-        request(&app, Method::GET, &path, None, Some(token(&other)))
-            .await
-            .0,
         StatusCode::NOT_FOUND
     );
-    assert_eq!(
-        request(&app, Method::GET, &path, None, Some(token(&b)))
-            .await
-            .1["tags"],
-        json!(["a,b"])
-    );
-    let update = json!({"revision":1,"content":"第二条","project":"工作","category":"原分类","tags":["a,b"],"active":true});
-    assert_eq!(
-        request(
-            &app,
-            Method::PUT,
-            &path,
-            Some(update.clone()),
-            Some(token(&b))
-        )
-        .await
-        .0,
-        StatusCode::OK
-    );
-    assert_eq!(
-        request(&app, Method::PUT, &path, Some(update), Some(token(&a)))
-            .await
-            .0,
-        StatusCode::CONFLICT
-    );
-    let append_path = format!("{path}/append");
-    let append = json!({"revision":2,"content":"\n追加"});
-    assert_eq!(
-        request(
-            &app,
-            Method::POST,
-            &append_path,
-            Some(append.clone()),
-            Some(token(&a))
-        )
-        .await
-        .0,
-        StatusCode::OK
-    );
-    assert_eq!(
-        request(
-            &app,
-            Method::POST,
-            &append_path,
-            Some(append),
-            Some(token(&a))
-        )
-        .await
-        .0,
-        StatusCode::CONFLICT
-    );
-    assert_eq!(
-        request(
-            &app,
-            Method::DELETE,
-            &path,
-            Some(json!({"revision":3})),
-            Some(token(&b))
-        )
-        .await
-        .0,
-        StatusCode::OK
-    );
-    assert!(
-        request(&app, Method::GET, "/api/memos", None, Some(token(&a)))
-            .await
-            .1["items"]
-            .as_array()
-            .unwrap()
-            .is_empty()
-    );
-    let deleted = request(
-        &app,
-        Method::GET,
-        "/api/memos?include_deleted=true",
-        None,
-        Some(token(&a)),
-    )
-    .await
-    .1;
-    assert_eq!(deleted["items"][0]["content"], "第二条\n追加");
-    assert!(!deleted["items"][0]["deleted_at"].is_null());
-    assert_eq!(
-        request(&app, Method::GET, "/api/memos", None, Some(token(&other)))
-            .await
-            .1["items"],
-        json!([])
-    );
 }
 
 #[tokio::test]
-async fn concurrent_create_and_update_do_not_duplicate_or_overwrite() {
+async fn device_ownership_and_refresh_rotation_remain_atomic() {
     let (_dir, app) = setup(Some(INVITE)).await;
     register(&app, "alice", INVITE).await;
-    let login = login(&app, "alice", "device-a").await;
-    let access = token(&login);
-    let input = json!({"request_id":"concurrent","content":"original"});
-    let (a, b) = tokio::join!(
+    register(&app, "bob", INVITE).await;
+    let alice = login(&app, "alice", "shared-device").await;
+    let bob = request(
+        &app,
+        Method::POST,
+        "/api/auth/login",
+        Some(json!({"username":"bob","password":PASSWORD,"device_id":"shared-device","device_name":"B"})),
+        None,
+    ).await;
+    assert_eq!(bob.0, StatusCode::CONFLICT);
+    assert_eq!(bob.1["error"]["code"], "device_id_in_use");
+    assert_eq!(
+        request(&app, Method::GET, "/api/auth/me", None, Some(token(&alice)))
+            .await
+            .0,
+        StatusCode::OK,
+    );
+
+    let body = json!({"refresh_token":alice["refresh_token"]});
+    let (first, second) = tokio::join!(
         request(
             &app,
             Method::POST,
-            "/api/memos",
-            Some(input.clone()),
-            Some(access)
+            "/api/auth/refresh",
+            Some(body.clone()),
+            None
         ),
-        request(&app, Method::POST, "/api/memos", Some(input), Some(access))
-    );
-    assert_eq!(a.0, StatusCode::CREATED);
-    assert_eq!(b.0, StatusCode::CREATED);
-    assert_eq!(a.1["id"], b.1["id"]);
-    let path = format!("/api/memos/{}", a.1["id"].as_str().unwrap());
-    let (a, b) = tokio::join!(
-        request(
-            &app,
-            Method::PUT,
-            &path,
-            Some(json!({"revision":1,"content":"first"})),
-            Some(access)
-        ),
-        request(
-            &app,
-            Method::PUT,
-            &path,
-            Some(json!({"revision":1,"content":"second"})),
-            Some(access)
-        )
+        request(&app, Method::POST, "/api/auth/refresh", Some(body), None),
     );
     assert!(matches!(
-        (a.0, b.0),
-        (StatusCode::OK, StatusCode::CONFLICT) | (StatusCode::CONFLICT, StatusCode::OK)
+        (first.0, second.0),
+        (StatusCode::OK, StatusCode::UNAUTHORIZED) | (StatusCode::UNAUTHORIZED, StatusCode::OK)
     ));
 }
 
 #[tokio::test]
-async fn restart_persists_data_and_unsupported_work_is_not_silently_accepted() {
-    let (dir, app) = setup(Some(INVITE)).await;
-    register(&app, "alice", INVITE).await;
-    let login = login(&app, "alice", "device-a").await;
-    let access = token(&login);
-    let denied = request(&app, Method::POST, "/api/memos", Some(json!({"request_id":"bad","content":"x","dispatch":{"instruction":"run","target_device_id":"other"}})), Some(access)).await;
-    assert_eq!(denied.0, StatusCode::UNPROCESSABLE_ENTITY);
-    assert_eq!(denied.1["error"]["code"], "unsupported_feature");
-    let created = request(
-        &app,
-        Method::POST,
-        "/api/memos",
-        Some(json!({"request_id":"ok","content":"persisted"})),
-        Some(access),
-    )
-    .await
-    .1;
-    drop(app);
-    let state = AppState::open(&dir.path().join("memo.sqlite3"), SECRET, Some(INVITE))
-        .await
+async fn migrates_v1_removing_memos_and_preserving_accounts_and_devices() {
+    use argon2::{
+        password_hash::{rand_core::OsRng, PasswordHasher, SaltString},
+        Argon2,
+    };
+    use diesel::{connection::SimpleConnection, prelude::*, sql_types::Text};
+
+    let dir = tempfile::tempdir().unwrap();
+    let path = dir.path().join("existing.sqlite3");
+    let mut conn = SqliteConnection::establish(path.to_str().unwrap()).unwrap();
+    conn.batch_execute(include_str!("fixtures/sqlx_v1.sql"))
         .unwrap();
-    let restarted = router(state);
-    let path = format!("/api/memos/{}", created["id"].as_str().unwrap());
+    let hash = Argon2::default()
+        .hash_password(PASSWORD.as_bytes(), &SaltString::generate(&mut OsRng))
+        .unwrap()
+        .to_string();
+    diesel::sql_query("INSERT INTO accounts(id,username,password_hash,created_at) VALUES('old-account','legacy-test',?,1)")
+        .bind::<Text, _>(hash)
+        .execute(&mut conn)
+        .unwrap();
+    conn.batch_execute(
+        "INSERT INTO devices(id,account_id,name,kind,created_at) VALUES('old-device','old-account','Old device','desktop',1);
+         INSERT INTO memos(id,account_id,request_id,request_hash,content,created_device_id,created_at,updated_at)
+         VALUES('old-memo','old-account','old-request','synthetic-hash','before Diesel','old-device',1,1);",
+    ).unwrap();
+    drop(conn);
+
+    let app = router(AppState::open(&path, SECRET, Some(INVITE)).await.unwrap());
+    let session = login(&app, "legacy-test", "new-device").await;
+    let access = token(&session);
     assert_eq!(
-        request(&restarted, Method::GET, &path, None, Some(access))
+        request(&app, Method::GET, "/api/memos/old-memo", None, Some(access))
             .await
-            .1["content"],
-        "persisted"
+            .0,
+        StatusCode::NOT_FOUND
     );
+    let devices = request(&app, Method::GET, "/api/devices", None, Some(access)).await;
+    assert_eq!(devices.0, StatusCode::OK);
+    assert!(devices
+        .1
+        .as_array()
+        .unwrap()
+        .iter()
+        .any(|device| device["id"] == "old-device"));
+    drop(app);
+    let mut conn = SqliteConnection::establish(path.to_str().unwrap()).unwrap();
+    #[derive(QueryableByName)]
+    struct Number {
+        #[diesel(sql_type = diesel::sql_types::BigInt)]
+        value: i64,
+    }
+    let table = diesel::sql_query(
+        "SELECT COUNT(*) AS value FROM sqlite_master WHERE type='table' AND name='memos'",
+    )
+    .get_result::<Number>(&mut conn)
+    .unwrap();
+    assert_eq!(table.value, 0);
+    let version = diesel::sql_query("SELECT user_version AS value FROM pragma_user_version")
+        .get_result::<Number>(&mut conn)
+        .unwrap();
+    assert_eq!(version.value, 2);
+    drop(conn);
+    assert!(AppState::open(&path, SECRET, Some(INVITE)).await.is_ok());
 }
 
 #[tokio::test]
 async fn refuses_an_unrelated_database_without_replacing_its_contents() {
+    use diesel::{connection::SimpleConnection, prelude::*, sql_types::Text};
+    #[derive(QueryableByName)]
+    struct Witness {
+        #[diesel(sql_type = Text)]
+        value: String,
+    }
     let dir = tempfile::tempdir().unwrap();
     let path = dir.path().join("unrelated.sqlite3");
-    let options = sqlx::sqlite::SqliteConnectOptions::new()
-        .filename(&path)
-        .create_if_missing(true);
-    let pool = sqlx::SqlitePool::connect_with(options).await.unwrap();
-    sqlx::query("CREATE TABLE witness(value TEXT NOT NULL)")
-        .execute(&pool)
-        .await
+    let mut conn = SqliteConnection::establish(path.to_str().unwrap()).unwrap();
+    conn.batch_execute("CREATE TABLE witness(value TEXT NOT NULL); INSERT INTO witness(value) VALUES('untouched');")
         .unwrap();
-    sqlx::query("INSERT INTO witness(value) VALUES('untouched')")
-        .execute(&pool)
-        .await
-        .unwrap();
-    pool.close().await;
+    drop(conn);
     assert!(AppState::open(&path, SECRET, Some(INVITE)).await.is_err());
-    let pool =
-        sqlx::SqlitePool::connect_with(sqlx::sqlite::SqliteConnectOptions::new().filename(&path))
-            .await
-            .unwrap();
-    let value: String = sqlx::query_scalar("SELECT value FROM witness")
-        .fetch_one(&pool)
-        .await
+    let mut conn = SqliteConnection::establish(path.to_str().unwrap()).unwrap();
+    let value = diesel::sql_query("SELECT value FROM witness")
+        .get_result::<Witness>(&mut conn)
         .unwrap();
-    assert_eq!(value, "untouched");
+    assert_eq!(value.value, "untouched");
 }
 
 #[cfg(unix)]

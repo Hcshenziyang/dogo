@@ -78,10 +78,6 @@ class Device:
         self.refresh_hash = None
         self.refresh_expires_at = None
 
-    def require_dispatch_target(self) -> None:
-        if not self.active or self.kind != "desktop":
-            raise DomainError("device_unavailable", "Target must be an active desktop device")
-
     def require_consumer(self) -> None:
         if not self.active or self.kind != "desktop":
             raise DomainError("execution_device_required", "An active desktop device is required")

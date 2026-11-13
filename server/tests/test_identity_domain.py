@@ -64,20 +64,6 @@ def test_consumer_requires_active_desktop():
         device.require_consumer()
 
 
-def test_dispatch_target_error_is_distinct_from_consumer_error():
-    device = example_device()
-    with pytest.raises(DomainError) as error:
-        device.require_dispatch_target()
-    assert error.value.code == "device_unavailable"
-    assert str(error.value) == "Target must be an active desktop device"
-    device.kind = "desktop"
-    device.require_dispatch_target()
-    device.revoke()
-    with pytest.raises(DomainError) as error:
-        device.require_dispatch_target()
-    assert error.value.code == "device_unavailable"
-
-
 def test_account_validation_preserves_normalization():
     assert Account.normalize_username("  ALIce ", "long-password") == "alice"
     for username, password in [

@@ -2,19 +2,18 @@
 import { createUI } from './ui.js';
 import { styles } from './styles.js';
 import { readLocal, writeLocal, type Control, type Dict } from './presentation.js';
-import { createMemosView } from '../memos/view.js';
-import { registerMemoPicker } from '../memos/conversation.js';
 import { createDevicesView } from '../devices/view.js';
+import { clearLegacyMemoDrafts } from '../devices/cleanup.js';
 
 declare const window: any;
-export function registerClient(kind: 'memos' | 'devices', title: string) {
+export function registerClient(title: string) {
   window.__ModuleLoader__.load({
-    id: 'dogo-' + kind + '/client',
+    id: 'dogo-devices/client',
     factory: (require: any) => {
       const React = require('react');
       const ui = createUI(React),
         { h, Icon, Button, Badge, Field, Dialog } = ui;
-      const Content = kind === 'memos' ? createMemosView(React, ui) : createDevicesView(React, ui);
+      const Content = createDevicesView(React, ui);
       function Panel({ control }: { control: Control }) {
         const [status, setStatus] = React.useState(null as Dict | null);
         const [ready, setReady] = React.useState(false);
@@ -23,7 +22,6 @@ export function registerClient(kind: 'memos' | 'devices', title: string) {
           [error, setError] = React.useState('');
         const [notice, setNotice] = React.useState(''),
           [settings, setSettings] = React.useState(false);
-        const [showLogin, setShowLogin] = React.useState(false);
         const [confirmation, setConfirmation] = React.useState(null as any);
         const [login, setLogin] = React.useState(() => ({
           server: '',
@@ -55,17 +53,6 @@ export function registerClient(kind: 'memos' | 'devices', title: string) {
           const sequence = ++refreshSequence.current;
           const next = await control('status');
           if (!mounted.current || sequence !== refreshSequence.current) return next;
-          if (kind === 'memos') {
-            setStatus(next);
-            void control('devices')
-              .then((list) => {
-                if (mounted.current && sequence === refreshSequence.current) setDevices(list);
-              })
-              .catch(() => {
-                if (mounted.current && sequence === refreshSequence.current) setDevices([]);
-              });
-            return next;
-          }
           try {
             if (next.loggedIn) {
               const list = await control('devices');
@@ -86,7 +73,7 @@ export function registerClient(kind: 'memos' | 'devices', title: string) {
           };
         }, []);
         React.useEffect(() => {
-          if (!status?.loggedIn || (kind !== 'devices' && !settings)) return;
+          if (!status?.loggedIn) return;
           let active = true,
             polling = false;
           const timer = setInterval(async () => {
@@ -117,10 +104,6 @@ export function registerClient(kind: 'memos' | 'devices', title: string) {
           return () => clearTimeout(timer);
         }, [notice]);
         const openSettings = () => {
-          if (kind === 'memos' && !status?.loggedIn) {
-            setShowLogin(true);
-            return;
-          }
           setCwd(status?.consumer?.cwd || '');
           setSettings(true);
         };
@@ -156,19 +139,13 @@ export function registerClient(kind: 'memos' | 'devices', title: string) {
             h(
               'div',
               { className: 'dg-title-mark' },
-              h(Icon, { name: kind === 'memos' ? 'note' : 'devices', size: 21 }),
+              h(Icon, { name: 'devices', size: 21 }),
             ),
             h(
               'div',
               null,
-              h('h1', null, kind === 'memos' ? '备忘录' : '设备与会话'),
-              h(
-                'p',
-                null,
-                kind === 'memos'
-                  ? '随手记下，在其他设备接着处理。'
-                  : '连接你的电脑，继续原来的对话。',
-              ),
+              h('h1', null, '设备与会话'),
+              h('p', null, '连接你的电脑，继续原来的对话。'),
             ),
           ),
           h(
@@ -180,8 +157,8 @@ export function registerClient(kind: 'memos' | 'devices', title: string) {
                 { className: 'dg-head-status' },
                 h(
                   Badge,
-                  { tone: kind === 'devices' && connected ? 'good' : 'muted' },
-                  kind === 'memos' ? 'DogO · ' + status.username : accessState,
+                  { tone: connected ? 'good' : 'muted' },
+                  accessState,
                 ),
               ),
             status?.loggedIn &&
@@ -219,7 +196,7 @@ export function registerClient(kind: 'memos' | 'devices', title: string) {
               h(
                 'p',
                 null,
-                '两个 DogO 插件共用此账户。备忘录先保存在本机，连接后同步到服务；会话保留在执行电脑。',
+                '会话保留在执行电脑，连接服务后可从其他设备访问。',
               ),
               h(
                 Button,
@@ -263,7 +240,7 @@ export function registerClient(kind: 'memos' | 'devices', title: string) {
                 h(
                   'p',
                   null,
-                  '开关立即生效。开启后，同一账户的其他设备可查看和继续本机会话，也可向本机发送备忘录指令。',
+                  '开关立即生效。开启后，同一账户的其他设备可查看和继续本机会话。',
                 ),
                 h('p', { role: 'status' }, busy ? '正在保存设置…' : accessState),
                 h(Field, {
@@ -294,14 +271,8 @@ export function registerClient(kind: 'memos' | 'devices', title: string) {
             'section',
             { className: 'dg-login-copy' },
             h('div', { className: 'dg-label' }, 'D O G O'),
-            h('h2', null, '想法随手记，', h('br'), '换个设备继续。'),
-            h('p', null, '把零散的记录带到一起，也把电脑上的对话带到身边。'),
-            h(
-              'div',
-              { className: 'dg-login-feature' },
-              h(Icon, { name: 'cloud' }),
-              '备忘录在你的设备间共享',
-            ),
+            h('h2', null, '连接你的电脑，', h('br'), '随时继续对话。'),
+            h('p', null, '从其他设备访问在线电脑上的会话。'),
             h(
               'div',
               { className: 'dg-login-feature' },
@@ -327,18 +298,11 @@ export function registerClient(kind: 'memos' | 'devices', title: string) {
                     setLogin((old: Dict) => ({ ...old, password: '' }));
                   }
                   await refresh();
-                  if (kind === 'memos') setShowLogin(false);
                 });
               },
             },
             h('h3', null, '连接 DogO'),
             h('p', null, '使用你在服务端创建的账户登录'),
-            kind === 'memos' &&
-              h(
-                Button,
-                { variant: 'secondary', disabled: busy, onClick: () => setShowLogin(false) },
-                '返回本机备忘录',
-              ),
             h(Field, {
               label: 'DogO 服务地址',
               type: 'url',
@@ -383,7 +347,7 @@ export function registerClient(kind: 'memos' | 'devices', title: string) {
         );
         return h(
           'div',
-          { className: 'dogo', 'data-dogo': kind },
+          { className: 'dogo', 'data-dogo': 'devices' },
           h('style', null, styles),
           header,
           error &&
@@ -409,12 +373,9 @@ export function registerClient(kind: 'memos' | 'devices', title: string) {
             ),
           !status || !ready
             ? h('div', { className: 'dg-empty', role: 'status' }, '正在连接 DogO…')
-            : (kind === 'memos' && !showLogin) || status.loggedIn
+            : status.loggedIn
               ? h(Content, {
-                  key:
-                    kind === 'memos'
-                      ? 'memo/' + status.memoIdentity
-                      : status.server + '/' + status.username,
+                  key: status.server + '/' + status.username,
                   control,
                   status,
                   devices,
@@ -467,14 +428,19 @@ export function registerClient(kind: 'memos' | 'devices', title: string) {
       }
       function apply(ctx: any) {
         const control: Control = async (method, payload = {}) => {
-          const result = await ctx.connection.rpc.call('/dogo-' + kind, method, payload);
+          const result = await ctx.connection.rpc.call('/dogo-devices', method, payload);
           if (!result.ok) throw Error(result.error?.message || 'DogO 请求失败');
           return result.value;
         };
-        if (kind === 'memos') registerMemoPicker(ctx, control, Icon, h);
+        void control('status').then(async (status: Dict) => {
+          if (status.memoCleanupPending) {
+            clearLegacyMemoDrafts(localStorage);
+            await control('finish-memo-cleanup');
+          }
+        }).catch((error: unknown) => console.error('旧备忘录草稿清理失败', error));
         ctx.slots.inject('main', () =>
           ctx.slots.register(
-            { name: 'main', key: 'dogo-' + kind, inject: () => ({ control }) },
+            { name: 'main', key: 'dogo-devices', inject: () => ({ control }) },
             Panel,
           ),
         );
@@ -482,11 +448,11 @@ export function registerClient(kind: 'memos' | 'devices', title: string) {
           ctx.slots.register(
             {
               name: 'sidebar.panellist',
-              id: 'dogo-' + kind,
-              order: kind === 'memos' ? 10 : 11,
+              id: 'dogo-devices',
+              order: 11,
               label: () => title,
             },
-            ({ size }: any) => h(Icon, { name: kind === 'memos' ? 'note' : 'devices', size }),
+            ({ size }: any) => h(Icon, { name: 'devices', size }),
           ),
         );
       }

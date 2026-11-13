@@ -1,0 +1,1268 @@
+<!-- DeepSeek Harness logo license:
+MIT License
+
+Copyright (c) 2026 DeepSeek
+
+Permission is hereby granted, free of charge, to any person obtaining a copy
+of this software and associated documentation files (the "Software"), to deal
+in the Software without restriction, including without limitation the rights
+to use, copy, modify, merge, publish, distribute, sublicense, and/or sell
+copies of the Software, and to permit persons to whom the Software is
+furnished to do so, subject to the following conditions:
+
+The above copyright notice and this permission notice shall be included in all
+copies or substantial portions of the Software.
+
+THE SOFTWARE IS PROVIDED "AS IS", WITHOUT WARRANTY OF ANY KIND, EXPRESS OR
+IMPLIED, INCLUDING BUT NOT LIMITED TO THE WARRANTIES OF MERCHANTABILITY,
+FITNESS FOR A PARTICULAR PURPOSE AND NONINFRINGEMENT. IN NO EVENT SHALL THE
+AUTHORS OR COPYRIGHT HOLDERS BE LIABLE FOR ANY CLAIM, DAMAGES OR OTHER
+LIABILITY, WHETHER IN AN ACTION OF CONTRACT, TORT OR OTHERWISE, ARISING FROM,
+OUT OF OR IN CONNECTION WITH THE SOFTWARE OR THE USE OR OTHER DEALINGS IN THE
+SOFTWARE.
+
+-->
+<!doctype html>
+<html lang="zh-CN">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>DogO · 个人工作空间原型</title>
+<style>
+:root {
+  color-scheme: light;
+  --page:#f4f3f1; --sidebar:#f7f6f4; --paper:#fff; --ink:#272431;
+  --muted:#8c8994; --soft:#b5b1bb; --line:#ebe9ee; --accent:#7660c8;
+  --accent-deep:#604bb2; --accent-soft:#f1edf9; --accent-mid:#e4ddf7;
+  --green:#469a78; --green-bg:#edf8f2; --red:#b96770; --red-bg:#fff1f1;
+  --shadow:0 18px 50px rgba(42,34,62,.12);
+  font-family: -apple-system,BlinkMacSystemFont,"PingFang SC","Microsoft YaHei",system-ui,sans-serif;
+}
+* { box-sizing:border-box; }
+html,body { width:100%; height:100%; margin:0; }
+body { background:var(--page); color:var(--ink); font-size:14px; overflow:hidden; }
+button,input,textarea { font:inherit; }
+button { cursor:pointer; }
+button:focus-visible, input:focus-visible, textarea:focus-visible, [contenteditable="true"]:focus-visible { outline:2px solid #9b8bd9; outline-offset:2px; }
+button { color:inherit; }
+.icon { width:17px; height:17px; flex:none; stroke:currentColor; fill:none; stroke-width:1.7; stroke-linecap:round; stroke-linejoin:round; }
+.small-icon { width:15px; height:15px; }
+.app { height:100%; min-width:0; display:grid; grid-template-columns:232px minmax(0,1fr); grid-template-rows:58px minmax(0,1fr); background:var(--paper); }
+.topbar { grid-column:1 / -1; display:flex; align-items:center; border-bottom:1px solid var(--line); min-width:0; background:#fff; z-index:4; }
+.brand { height:100%; width:232px; flex:none; display:flex; align-items:center; gap:10px; padding:0 18px; border-right:1px solid var(--line); }
+.brand-mark { width:30px; height:30px; display:grid; place-items:center; border-radius:10px; color:white; background:linear-gradient(145deg,#a897e6,#7255bc); box-shadow:0 3px 8px #876dcc30; }
+.brand-mark .icon { width:17px; height:17px; stroke-width:2.1; }
+.brand-name { font-weight:700; letter-spacing:-.4px; font-size:16px; }
+.brand-sub { font-size:10px; letter-spacing:1.3px; color:#b2aeb8; margin-left:2px; font-weight:500; }
+.top-content { display:flex; flex:1; min-width:0; align-items:center; justify-content:space-between; padding:0 23px; gap:12px; }
+.breadcrumb { display:flex; align-items:center; gap:9px; color:#a6a2ad; white-space:nowrap; min-width:0; font-size:12px; }
+.breadcrumb strong { color:#615d6a; font-weight:600; overflow:hidden; text-overflow:ellipsis; }
+.top-actions { display:flex; align-items:center; gap:14px; }
+.mode-switch { background:#f4f3f6; padding:3px; border-radius:9px; display:flex; gap:1px; white-space:nowrap; }
+.mode-switch button { border:0; background:none; color:#8d8995; padding:6px 10px; border-radius:7px; display:flex; align-items:center; gap:6px; font-size:11px; line-height:1; }
+.mode-switch button.active { color:#4b435f; background:white; box-shadow:0 1px 4px #25203312; font-weight:600; }
+.mode-switch .icon { width:14px; height:14px; }
+.demo-pill { border:1px solid #e9e3f3; color:#8375ab; border-radius:99px; padding:5px 8px; font-size:10px; white-space:nowrap; background:#fcfaff; }
+.avatar { width:27px; height:27px; border-radius:50%; display:grid; place-items:center; color:#70649b; background:#eae6f5; font-size:11px; font-weight:700; }
+.sidebar { grid-column:1; grid-row:2; background:var(--sidebar); border-right:1px solid var(--line); display:flex; flex-direction:column; min-height:0; padding:17px 11px 12px; overflow:hidden; }
+.side-label { display:flex; align-items:center; justify-content:space-between; color:#aba7b2; font-size:10px; font-weight:700; letter-spacing:.11em; padding:0 9px; margin:17px 0 8px; }
+.side-label:first-child { margin-top:1px; }
+.side-action { border:0; background:transparent; color:#aaa5b0; display:grid; place-items:center; padding:3px; border-radius:5px; }
+.side-action:hover { background:#ebe9ef; color:#625c70; }
+.nav-btn,.file-btn { border:0; background:transparent; width:100%; min-width:0; display:flex; align-items:center; gap:10px; color:#75717d; text-align:left; border-radius:8px; padding:9px 10px; font-size:12px; }
+.nav-btn:hover,.file-btn:hover { background:#efedf2; color:#4a4456; }
+.nav-btn.active,.file-btn.active { color:var(--accent-deep); background:#eae5f5; font-weight:600; }
+.nav-btn .count { margin-left:auto; color:#b1acb7; font-size:10px; }
+.nav-btn.active .count { color:#a195c8; }
+.new-chat { margin:0 0 6px; border:1px solid #e8e4ed; border-radius:9px; background:#fff; display:flex; align-items:center; justify-content:center; gap:8px; padding:9px 10px; color:#5e5869; font-size:12px; font-weight:600; box-shadow:0 2px 5px #3b2e4507; }
+.new-chat:hover { border-color:#c9bde9; color:var(--accent-deep); }
+.sidebar-scroll { overflow-y:auto; min-height:0; }
+.workspace-row { display:flex; align-items:center; gap:2px; border-radius:7px; }
+.workspace-row:hover { background:#efedf2; }
+.workspace-name { flex:1; min-width:0; border:0; background:transparent; display:flex; align-items:center; gap:7px; padding:8px 7px; text-align:left; color:#716a78; font-size:11.5px; font-weight:600; }
+.workspace-name .icon { width:14px; height:14px; color:#a196ab; }
+.workspace-name .workspace-chevron { width:11px; height:11px; color:#b6aeb9; }
+.workspace-name span { overflow:hidden; white-space:nowrap; text-overflow:ellipsis; }
+.workspace-add { border:0; background:transparent; color:#aaa1ad; padding:5px; border-radius:5px; display:grid; place-items:center; }
+.workspace-add:hover { background:#e6e1ea; color:#725db1; }
+.workspace-add .icon { width:14px; height:14px; }
+.workspace-thread { padding-left:29px; }
+.ungrouped-label { color:#aaa3ad; font-size:10px; padding:10px 10px 4px; }
+.folder-row { display:flex; align-items:center; gap:8px; padding:8px 9px 5px; color:#9994a0; font-size:11px; font-weight:600; }
+.folder-row .chevron { width:12px; height:12px; color:#b4b0ba; }
+.file-btn { padding:8px 8px 8px 28px; font-size:11.5px; gap:8px; }
+.file-btn span { overflow:hidden; text-overflow:ellipsis; white-space:nowrap; }
+.file-btn .icon { width:15px; height:15px; color:#a69bbd; }
+.file-btn.active .icon { color:var(--accent); }
+.side-bottom { margin-top:auto; border-top:1px solid #e9e7eb; padding:12px 5px 0; display:flex; gap:9px; align-items:center; min-width:0; }
+.side-bottom-icon { width:30px; height:30px; border-radius:9px; background:#ece9f1; color:#8b8298; display:grid; place-items:center; }
+.side-bottom-main { flex:1; min-width:0; }
+.side-bottom-main strong { display:block; font-size:11px; font-weight:600; color:#625d69; }
+.side-bottom-main small { display:block; margin-top:3px; font-size:10px; color:#aaa5af; }
+.stage { grid-column:2; grid-row:2; display:flex; min-width:0; min-height:0; background:#fff; }
+.split { display:flex; width:100%; min-width:0; min-height:0; }
+.chat-pane,.work-pane { display:flex; flex-direction:column; min-width:0; min-height:0; }
+.chat-pane { flex:1 1 58%; background:#fff; }
+.work-pane { flex:0 0 41%; border-left:1px solid var(--line); background:#fcfbfa; }
+.split[data-focus="work"] .work-pane { order:0; flex:1 1 64%; border-left:0; }
+.split[data-focus="work"] .chat-pane { order:1; flex:0 0 36%; border-left:1px solid var(--line); }
+.pane-header { min-height:54px; flex:none; border-bottom:1px solid var(--line); padding:0 21px; display:flex; align-items:center; justify-content:space-between; gap:12px; background:rgba(255,255,255,.9); }
+.pane-title { display:flex; align-items:center; gap:9px; min-width:0; }
+.pane-title strong { font-size:12px; font-weight:650; overflow:hidden; text-overflow:ellipsis; white-space:nowrap; }
+.pane-title .pane-icon { color:#9b8db8; }
+.pane-subtitle { font-size:10px; color:#aaa4b0; margin-left:2px; white-space:nowrap; }
+.header-actions { display:flex; align-items:center; gap:5px; }
+.icon-button { background:none; border:0; padding:6px; color:#a5a0ab; border-radius:7px; display:grid; place-items:center; }
+.icon-button:hover { background:#f3f0f7; color:var(--accent-deep); }
+.text-button { border:0; background:none; padding:7px 8px; color:#928a9f; font-size:11px; display:flex; align-items:center; gap:5px; border-radius:7px; white-space:nowrap; }
+.text-button:hover { color:var(--accent-deep); background:#f4f0f9; }
+.chat-scroll { min-height:0; flex:1; overflow-y:auto; padding:24px 36px 20px; }
+.chat-inner { max-width:680px; margin:0 auto; }
+.date-divider { text-align:center; color:#c1bdc5; font-size:10px; margin-bottom:18px; }
+.message { display:flex; gap:12px; margin-bottom:19px; align-items:flex-start; }
+.message.user { flex-direction:row-reverse; }
+.message-avatar { flex:none; width:29px; height:29px; border-radius:10px; background:#f1ecfa; color:#8069bf; display:grid; place-items:center; }
+.message-avatar .icon { width:15px; height:15px; }
+.message.user .message-avatar { background:#f0eef2; color:#89828e; font-size:10px; font-weight:700; border-radius:50%; }
+.message-body { min-width:0; max-width:89%; }
+.message-name { display:flex; align-items:center; gap:7px; font-weight:650; font-size:11px; color:#5a5562; margin:2px 0 9px; }
+.message-name small { color:#c0bbc5; font-size:10px; font-weight:400; }
+.message.user .message-name { justify-content:flex-end; }
+.user-bubble { background:#f4f2f7; padding:12px 15px; border-radius:13px 3px 13px 13px; color:#504b58; font-size:12px; line-height:1.8; }
+.assistant-text { font-size:12.5px; line-height:1.8; color:#5b5663; }
+.user-quote { margin-bottom:8px; padding:5px 8px; border-left:2px solid #c8b8e9; color:#8d809c; background:#fdfbff; border-radius:0 5px 5px 0; font-size:10px; white-space:pre-wrap; }
+.assistant-text p { margin:0 0 9px; }
+.assistant-text p:last-child { margin-bottom:0; }
+.assistant-text strong { color:#3f3948; font-weight:650; }
+.source-title { color:#a39cab; font-size:10px; display:flex; align-items:center; gap:5px; margin:15px 0 7px; }
+.sources { display:flex; gap:6px; flex-wrap:wrap; }
+.source-chip { border:1px solid #eeeaf2; border-radius:6px; background:#fff; color:#807590; display:flex; gap:5px; align-items:center; padding:5px 7px; font-size:10px; }
+.source-chip:hover { border-color:#cabde8; color:var(--accent-deep); }
+.source-chip .icon { width:12px; height:12px; }
+.answer-list { display:grid; gap:7px; padding:0; margin:10px 0 13px; list-style:none; }
+.answer-list li { display:flex; gap:8px; align-items:flex-start; }
+.answer-list .dot { width:5px; height:5px; border-radius:50%; background:#ab9ad7; margin-top:9px; flex:none; }
+.result-card { margin-top:13px; width:100%; border:1px solid #eae5f3; background:linear-gradient(110deg,#fcfaff,#fff); border-radius:10px; padding:11px 12px; display:flex; align-items:center; gap:10px; text-align:left; }
+.result-card:hover { border-color:#cfc2eb; }
+.result-icon { width:31px; height:31px; flex:none; display:grid; place-items:center; border-radius:9px; background:#f0eafb; color:#8069c3; }
+.result-content { flex:1; min-width:0; }
+.result-content strong { display:block; color:#575062; font-size:11px; font-weight:650; }
+.result-content small { display:block; color:#a29bab; font-size:10px; margin-top:4px; line-height:1.4; }
+.result-action { color:#8f7bbc; font-size:10px; white-space:nowrap; }
+.composer-wrap { flex:none; padding:5px 30px 15px; background:#fff; }
+.composer-inner { max-width:680px; margin:0 auto; }
+.quick-actions { display:flex; flex-wrap:wrap; gap:7px; margin:0 0 9px; }
+.quick { display:flex; align-items:center; gap:5px; border:1px solid #eeebf1; border-radius:7px; background:#fff; color:#928c99; padding:6px 8px; font-size:10px; }
+.quick:hover { border-color:#d9cdee; color:#7661b4; }
+.quick .icon { width:13px; height:13px; }
+.composer { border:1px solid #e8e3ed; border-radius:13px; background:#fff; padding:10px 10px 8px; box-shadow:0 5px 16px #44315108; }
+.composer:focus-within { border-color:#c4b5e1; box-shadow:0 3px 15px #8872c111; }
+.composer textarea { width:100%; display:block; border:0; outline:0; resize:none; background:transparent; min-height:38px; max-height:120px; color:#50495c; font-size:12px; line-height:1.6; padding:2px 3px; }
+.composer textarea::placeholder { color:#bbb6c0; }
+.composer-bottom { display:flex; align-items:center; justify-content:space-between; gap:8px; }
+.composer-tools { display:flex; align-items:center; gap:6px; min-width:0; }
+.composer-chip { border:0; background:#f6f3fa; color:#8a7aaa; padding:5px 7px; border-radius:6px; font-size:10px; display:flex; align-items:center; gap:4px; max-width:200px; }
+.composer-chip span { overflow:hidden; text-overflow:ellipsis; white-space:nowrap; }
+.composer-chip .icon { width:12px; height:12px; }
+.composer-chip.off { background:#f6f6f6; color:#aaa5ae; }
+.model-text { color:#b3adb9; font-size:10px; white-space:nowrap; }
+.send-button { width:28px; height:28px; border:0; border-radius:8px; display:grid; place-items:center; color:#fff; background:#8c78cf; }
+.send-button:hover { background:#7561b9; }
+.send-button .icon { width:15px; height:15px; }
+.composer-note { color:#beb9c2; text-align:center; font-size:9.5px; margin-top:8px; }
+.work-pane .pane-header { background:#fdfcfb; }
+.work-tabs { display:flex; gap:2px; min-width:0; overflow:hidden; }
+.work-tab { max-width:165px; display:flex; align-items:center; gap:6px; padding:8px 9px; border:0; background:transparent; color:#a6a0ab; border-radius:7px; font-size:10.5px; white-space:nowrap; }
+.work-tab span { overflow:hidden; text-overflow:ellipsis; }
+.work-tab.active { background:#f1eef5; color:#625776; }
+.work-tab .icon { width:14px; height:14px; flex:none; }
+.work-scroll { flex:1; overflow:auto; min-height:0; }
+.document { max-width:680px; margin:0 auto; padding:46px clamp(25px,6vw,60px) 55px; }
+.doc-kicker { display:flex; align-items:center; gap:7px; color:#aaa1ad; font-size:10px; margin-bottom:15px; }
+.doc-kicker .dot { width:5px; height:5px; background:#bbaed9; border-radius:50%; }
+.doc-title { margin:0 0 9px; font-size:24px; line-height:1.35; letter-spacing:-.7px; font-weight:700; color:#35303b; outline:none; overflow-wrap:anywhere; }
+.doc-summary { margin:0 0 29px; color:#a09aa6; font-size:11.5px; line-height:1.75; outline:none; overflow-wrap:anywhere; }
+.doc-divider { height:1px; background:#eeecee; margin-bottom:28px; }
+.doc-body h2 { font-size:13px; color:#514a58; margin:0 0 11px; font-weight:700; }
+.doc-body p { font-size:12px; line-height:1.95; color:#77717c; margin:0 0 25px; outline:none; white-space:pre-wrap; overflow-wrap:anywhere; }
+.doc-body p:focus,.doc-title:focus,.doc-summary:focus { background:#fbf9ff; border-radius:4px; }
+.doc-list { display:grid; gap:11px; margin:0 0 27px; }
+.check-row { display:flex; align-items:flex-start; gap:9px; color:#77717c; font-size:11.5px; line-height:1.6; }
+.check-row input,.task-item input { accent-color:#8d79ce; width:14px; height:14px; margin:2px 0 0; flex:none; cursor:pointer; }
+.check-row.done span,.task-item.done .task-label { color:#b9b4be; text-decoration:line-through; }
+.doc-tip { display:flex; gap:8px; align-items:flex-start; border-left:2px solid #c8b8e9; background:#f8f5fc; color:#8c80a2; font-size:10.5px; line-height:1.7; padding:10px 12px; border-radius:0 6px 6px 0; }
+.tip-quote { border:0; background:transparent; color:#806abb; padding:0; font-size:10.5px; font-weight:600; }
+.tip-quote:hover { color:#5f49ad; text-decoration:underline; }
+.doc-tip { flex-wrap:wrap; }
+.doc-footer { display:flex; align-items:center; gap:6px; margin-top:32px; color:#b5aebb; font-size:10px; }
+.doc-footer .icon { width:13px; height:13px; }
+.saved-dot { width:5px; height:5px; background:#83b69c; border-radius:50%; }
+.canvas-container { height:100%; min-height:350px; position:relative; overflow:hidden; background-color:#faf9fb; background-image:radial-gradient(#e6e2eb 1px,transparent 1px); background-size:19px 19px; }
+.canvas-toolbar { position:absolute; z-index:2; left:16px; top:16px; display:flex; gap:5px; }
+.canvas-tool,.canvas-zoom button { border:1px solid #eae6ed; background:#fff; color:#827b8b; border-radius:7px; padding:7px 8px; display:flex; align-items:center; gap:5px; font-size:10px; box-shadow:0 2px 8px #3c304908; }
+.canvas-tool:hover,.canvas-zoom button:hover { color:var(--accent-deep); border-color:#d8ccef; }
+.canvas-tool .icon { width:13px; height:13px; }
+.canvas-world { position:absolute; inset:55px 10px 55px; transform-origin:center; }
+.canvas-lines { position:absolute; inset:0; width:100%; height:100%; overflow:visible; pointer-events:none; }
+.canvas-node { position:absolute; transform:translate(-50%,-50%); width:clamp(84px, 27%, 160px); background:white; border:1px solid #e7e1ef; border-radius:10px; padding:10px 10px 9px; box-shadow:0 5px 16px #3e335412; touch-action:none; user-select:none; cursor:grab; }
+.canvas-node:active { cursor:grabbing; }
+.canvas-node.root { background:#f4effc; border-color:#d8c8f0; }
+.canvas-node.connect-source { border-color:#8f72d0; box-shadow:0 0 0 3px #dbcef2; }
+.canvas-tool.is-connecting { color:#6f55ad; border-color:#beaae3; background:#f6f1fd; }
+.node-kicker { color:#a89db0; display:flex; align-items:center; gap:4px; font-size:9px; margin-bottom:7px; }
+.node-kicker .icon { width:11px; height:11px; }
+.node-title { font-size:10.5px; font-weight:650; line-height:1.5; color:#605669; white-space:normal; overflow-wrap:anywhere; }
+.node-title[contenteditable] { cursor:text; user-select:text; }
+.node-sub { margin-top:5px; color:#aaa2af; font-size:9px; line-height:1.5; }
+.canvas-zoom { position:absolute; bottom:15px; right:15px; z-index:2; display:flex; gap:4px; align-items:center; }
+.canvas-zoom span { font-size:10px; color:#a6a0ab; min-width:32px; text-align:center; }
+.canvas-hint { position:absolute; left:18px; bottom:19px; color:#b4aeb8; font-size:10px; }
+.project-view { max-width:690px; margin:0 auto; padding:32px clamp(22px,5vw,50px) 48px; }
+.project-label { color:#aaa1ad; font-size:10px; margin-bottom:9px; }
+.project-view h1 { margin:0 0 8px; font-size:20px; letter-spacing:-.5px; color:#3b3540; }
+.project-description { color:#a29aa7; font-size:11px; line-height:1.7; margin:0 0 20px; }
+.project-file-list { display:grid; gap:4px; margin-bottom:20px; }
+.project-file { background:transparent; border:0; border-radius:7px; text-align:left; display:flex; gap:8px; align-items:center; padding:8px; color:#82798a; font-size:11px; }
+.project-file .icon { width:14px; height:14px; color:#a597b7; }
+.project-file.active,.project-file:hover { background:#f0ecf5; color:#705ba5; }
+.project-preview { border:1px solid #ece8ee; border-radius:10px; background:#fff; overflow:hidden; }
+.project-preview-head { border-bottom:1px solid #f0edf1; padding:11px 13px; display:flex; align-items:center; gap:7px; color:#817888; font-size:10px; }
+.project-preview-head .icon { width:13px; height:13px; }
+.project-preview pre { white-space:pre-wrap; overflow-wrap:anywhere; font:11px/1.8 ui-monospace,SFMono-Regular,Menlo,monospace; color:#716a78; margin:0; padding:14px; }
+.project-notice { color:#aaa3ae; font-size:10px; line-height:1.7; margin-top:15px; }
+.search-section { color:#aaa3ae; font-size:10px; font-weight:600; padding:9px 10px 3px; }
+.tasks-view { max-width:650px; margin:0 auto; padding:40px clamp(24px,6vw,58px); }
+.tasks-view h1 { font-size:22px; letter-spacing:-.6px; margin:0 0 8px; }
+.tasks-view > p { color:#a09aa5; font-size:11px; line-height:1.7; margin:0 0 24px; }
+.task-create { display:flex; gap:7px; margin-bottom:13px; }
+.task-create input { min-width:0; flex:1; border:1px solid #eae6ed; border-radius:8px; padding:9px 10px; background:white; color:#625b67; font-size:11px; }
+.task-create input::placeholder { color:#c0bac5; }
+.task-create button { flex:none; border:1px solid #e4daef; border-radius:8px; background:#f8f4fc; color:#806ab2; padding:8px 10px; font-size:10px; }
+.task-filter { display:flex; gap:5px; margin-bottom:20px; border-bottom:1px solid #edeaf0; }
+.task-filter button { border:0; background:none; padding:9px 10px; color:#aaa4b0; font-size:11px; border-bottom:2px solid transparent; }
+.task-filter button.active { color:#745bb8; border-bottom-color:#987ed1; font-weight:600; }
+.task-item { display:flex; align-items:flex-start; gap:10px; padding:14px 2px; border-bottom:1px solid #f0eef1; }
+.task-item-content { flex:1; min-width:0; }
+.task-label { font-size:12px; line-height:1.5; color:#625b67; }
+.task-source { display:block; border:0; background:none; padding:4px 0 0; color:#aaa2b2; font-size:10px; }
+.task-source:hover { color:var(--accent); }
+.task-empty { padding:22px 0; color:#aaa3af; font-size:12px; }
+.mobile-nav { display:none; }
+dialog { padding:0; border:0; background:transparent; color:inherit; max-width:calc(100vw - 30px); }
+dialog::backdrop { background:rgba(42,36,53,.32); backdrop-filter:blur(2px); }
+.modal { width:650px; max-width:100%; background:white; border-radius:15px; box-shadow:var(--shadow); overflow:hidden; }
+.modal-head { display:flex; align-items:flex-start; justify-content:space-between; padding:22px 24px 17px; border-bottom:1px solid #f0edf2; gap:12px; }
+.modal-eyebrow { color:#9d8ac6; font-size:10px; font-weight:700; letter-spacing:.08em; margin-bottom:7px; }
+.modal h2 { margin:0; font-size:17px; letter-spacing:-.3px; }
+.modal-description { color:#a49caa; font-size:11px; margin:7px 0 0; line-height:1.6; }
+.modal-body { padding:20px 24px; }
+.diff-label { font-size:10px; color:#a49caa; margin:0 0 8px; display:flex; align-items:center; gap:6px; }
+.diff-row { border-radius:7px; padding:11px 12px; font-size:11.5px; line-height:1.8; margin:0 0 14px; white-space:pre-wrap; overflow-wrap:anywhere; }
+.diff-row.before { background:var(--red-bg); color:#9c6269; }
+.diff-row.after { background:var(--green-bg); color:#568971; margin-bottom:0; }
+.modal-foot { display:flex; align-items:center; justify-content:space-between; gap:12px; padding:15px 24px 20px; }
+.modal-hint { font-size:10px; color:#aaa3ae; line-height:1.5; }
+.modal-buttons { display:flex; gap:8px; white-space:nowrap; }
+.button { border:1px solid #e9e5ed; border-radius:8px; background:white; color:#817989; padding:9px 12px; font-size:11px; }
+.button:hover { background:#f9f7fb; }
+.button.primary { border-color:#8068c4; background:#8068c4; color:#fff; }
+.button.primary:hover { background:#7158b7; }
+.search-modal { width:510px; }
+.search-box { display:flex; align-items:center; gap:9px; border-bottom:1px solid #eeeaf1; padding:17px 20px; }
+.search-box .icon { color:#a69db0; }
+.search-box input { flex:1; min-width:0; border:0; outline:0; font-size:13px; color:#4c4555; }
+.search-box input::placeholder { color:#c2bcc8; }
+.search-results { padding:9px; max-height:300px; overflow:auto; }
+.search-result { width:100%; text-align:left; background:none; border:0; padding:10px; border-radius:8px; display:flex; gap:10px; align-items:flex-start; color:#8c8297; }
+.search-result:hover { background:#f7f4fb; }
+.search-result strong { color:#62596c; font-size:11px; display:block; }
+.search-result small { display:block; font-size:10px; line-height:1.55; color:#aaa3ae; margin-top:4px; }
+.search-empty { padding:18px 12px; color:#aaa3ae; font-size:11px; }
+.create-input { width:100%; border:1px solid #e8e3ed; border-radius:8px; padding:11px; outline:0; color:#554e5d; }
+.toast { position:fixed; bottom:23px; left:50%; transform:translate(-50%,12px); z-index:8; background:#484051; color:#fff; border-radius:8px; padding:9px 13px; font-size:11px; opacity:0; pointer-events:none; transition:opacity .18s,transform .18s; }
+.toast.show { opacity:1; transform:translate(-50%,0); }
+@media (max-width:1050px) {
+  .app { grid-template-columns:200px minmax(0,1fr); }
+  .brand { width:200px; }
+  .work-pane { flex-basis:43%; }
+  .split[data-focus="work"] .chat-pane { flex-basis:39%; }
+  .chat-scroll { padding-left:23px; padding-right:23px; }
+  .composer-wrap { padding-left:20px; padding-right:20px; }
+  .document { padding-left:24px; padding-right:24px; }
+  .pane-subtitle,.brand-sub { display:none; }
+}
+@media (max-width:760px) {
+  body { overflow:hidden; }
+  .app { grid-template-columns:minmax(0,1fr); grid-template-rows:54px minmax(0,1fr) 56px; }
+  .topbar { grid-column:1; }
+  .brand { width:auto; padding:0 12px; border:0; }
+  .brand-mark { width:28px; height:28px; }
+  .brand-name { font-size:14px; }
+  .sidebar,.breadcrumb,.demo-pill,.avatar { display:none; }
+  .top-content { padding:0 10px; justify-content:flex-end; }
+  .top-actions { gap:4px; }
+  .mode-switch button { padding:7px 8px; font-size:10px; }
+  .stage { grid-column:1; grid-row:2; }
+  .split[data-focus="chat"] .work-pane { display:none; }
+  .split[data-focus="work"] .chat-pane { display:none; }
+  .split .chat-pane,.split[data-focus="work"] .work-pane { flex:1 1 100%; border:0; }
+  .chat-scroll { padding:23px 18px 25px; }
+  .composer-wrap { padding:4px 14px 10px; }
+  .document { padding:34px 25px 45px; }
+  .mobile-nav { grid-column:1; grid-row:3; display:flex; justify-content:space-around; align-items:center; border-top:1px solid var(--line); background:#fff; }
+  .mobile-nav button { border:0; background:none; color:#aaa3b0; display:flex; flex-direction:column; align-items:center; gap:3px; font-size:9px; padding:5px 12px; }
+  .mobile-nav button.active { color:var(--accent); }
+  .mobile-nav .icon { width:17px; height:17px; }
+  .modal-head { padding:18px 18px 15px; }
+  .modal-body { padding:17px 18px; }
+  .modal-foot { padding:12px 18px 18px; align-items:flex-end; }
+  .modal-hint { max-width:150px; }
+}
+
+/* Harness shell reference: existing left workspace list and conversation stay in place. */
+:root { --accent:#4d7eff; --accent-deep:#3466d6; --accent-soft:#eef4ff; --accent-mid:#dce7ff; --line:#e8e9eb; --sidebar:#f7f8fa; --ink:#17181d; --muted:#878c94; }
+.app { grid-template-columns:280px minmax(0,1fr); grid-template-rows:minmax(0,1fr); background:#fff; }
+.sidebar { grid-column:1; grid-row:1; padding:18px 11px 12px; background:#f7f8fa; border-right:1px solid #e2e4e7; }
+.native-brand { display:flex; align-items:center; gap:5px; height:34px; margin:0 4px 13px; }
+.native-brand img { width:23px; height:23px; }
+.native-wordmark { color:#17191e; font-weight:700; letter-spacing:-.8px; font-size:20px; }
+.native-badge { font-size:8px; letter-spacing:.04em; border-radius:2px; color:#fff; background:#181a1e; padding:2px 3px; margin-left:2px; }
+.native-brand .icon-button { margin-left:auto; color:#5c626d; }
+.new-chat { height:38px; margin:0 1px 12px; border-color:#dbdde1; font-size:13px; color:#20232a; background:#fff; box-shadow:none; }
+.new-chat:hover { border-color:#b8c2d4; color:#1e2734; }
+.native-links { display:grid; gap:1px; padding-bottom:9px; }
+.native-link { border:0; background:transparent; border-radius:7px; color:#24272c; text-align:left; padding:9px 9px; display:flex; align-items:center; gap:9px; font-size:13px; }
+.native-link:hover { background:#e9ebee; }
+.native-link .icon { width:16px; height:16px; }
+.native-work-head { display:flex; align-items:center; justify-content:space-between; padding:11px 8px 8px; color:#8b8f98; font-size:13px; }
+.native-work-actions { display:flex; align-items:center; gap:4px; }
+.native-work-actions .icon-button { padding:5px; color:#7f858f; }
+.sidebar-scroll { flex:1; overflow-y:auto; }
+.workspace-name { font-size:13px; font-weight:500; color:#22252a; padding:8px 7px; }
+.workspace-name .icon { color:#4f82ff; }
+.workspace-name .workspace-chevron { color:#a0a5ae; }
+.workspace-add { color:#9da2aa; }
+.workspace-row:hover { background:#ebedef; }
+.file-btn.workspace-thread { padding:8px 10px 8px 30px; color:#33363d; font-size:12.5px; }
+.file-btn.workspace-thread .icon { display:none; }
+.file-btn.workspace-thread.active { background:#e9ebed; color:#1d2025; font-weight:500; }
+.file-btn.workspace-thread:hover { background:#eceef0; color:#1d2025; }
+.ungrouped-label { font-size:11px; color:#a0a4aa; padding:11px 10px 3px; }
+.side-bottom { border:0; padding:8px 3px 0; margin-top:auto; }
+.side-bottom button { border:0; background:transparent; color:#34373e; padding:6px 7px; border-radius:7px; font-size:12px; display:flex; align-items:center; gap:8px; }
+.side-bottom button:hover { background:#eaecf0; }
+.stage { grid-column:2; grid-row:1; }
+.split { position:relative; }
+.chat-pane { order:0!important; flex:1 1 auto!important; border:0!important; background:#fff; }
+.work-pane { order:2!important; flex:0 0 var(--work-width,45%)!important; border-left:0!important; background:#fff; }
+.work-pane[hidden] { display:none!important; }
+.split.fullscreen .chat-pane,.split.fullscreen .native-splitter { display:none!important; }
+.split.fullscreen .work-pane { flex:1 1 auto!important; }
+.native-splitter { order:1; position:relative; width:1px; flex:0 0 1px; background:#e1e3e6; cursor:col-resize; border:0; padding:0; }
+.native-splitter::after { content:""; position:absolute; left:-4px; top:0; bottom:0; width:9px; }
+.native-splitter[hidden] { display:none!important; }
+.chat-header { flex:none; min-height:76px; border-bottom:1px solid #e9eaec; padding:13px 22px 0 28px; background:#fff; }
+.chat-head-row { display:flex; align-items:center; justify-content:space-between; gap:12px; min-width:0; }
+.chat-head-title { display:flex; align-items:center; gap:9px; min-width:0; font-size:13px; font-weight:650; color:#23262b; }
+.chat-head-title strong { overflow:hidden; white-space:nowrap; text-overflow:ellipsis; }
+.native-mode { font-size:11px; color:#9a9fa8; white-space:nowrap; font-weight:400; }
+.chat-head-actions { display:flex; align-items:center; gap:5px; color:#81858d; }
+.native-tabs { display:flex; align-items:center; gap:23px; height:36px; }
+.native-tabs button { border:0; background:none; color:#8a8f96; font-size:12px; padding:10px 0 8px; border-bottom:2px solid transparent; }
+.native-tabs button.active { color:#356bdf; border-bottom-color:#4d7eff; }
+.chat-scroll { padding:24px 28px 25px; }
+.chat-inner { max-width:776px; }
+.date-divider { display:none; }
+.message { gap:0; margin-bottom:24px; }
+.message-avatar,.message-name { display:none!important; }
+.message-body { max-width:90%; }
+.message.user .message-body { max-width:82%; }
+.user-bubble { background:#edf3ff; color:#20242b; padding:12px 16px; border-radius:16px 16px 4px 16px; font-size:13px; line-height:1.75; }
+.assistant-text { font-size:13px; line-height:1.9; color:#30343b; }
+.assistant-text strong { color:#1b1f26; }
+.answer-list .dot { background:#7da4f9; }
+.source-chip { border-color:#e5e8ef; color:#63799f; }
+.result-card { background:#fff; border-color:#e6e8ee; }
+.result-icon { background:#eef4ff; color:#5f86dc; }
+.result-action { color:#5880d8; }
+.composer-wrap { padding:5px 24px 17px; }
+.composer-inner { max-width:776px; }
+.composer { border:1px solid #e3e5e8; border-radius:20px; padding:13px 9px 9px; box-shadow:0 6px 24px #161d2c0b; }
+.composer textarea { font-size:13px; min-height:48px; padding:2px 6px; color:#2f3239; }
+.composer-bottom { gap:8px; }
+.composer-tools { gap:5px; }
+.composer-plus { width:28px; height:28px; display:grid; place-items:center; border:0; border-radius:50%; background:#f3f4f6; color:#6e737c; }
+.composer-permission,.model-button { border:0; background:none; color:#686e78; font-size:11px; padding:6px; display:flex; gap:4px; align-items:center; }
+.composer-chip { background:#eff4ff; color:#607eb4; max-width:160px; }
+.composer-chip[hidden] { display:none!important; }
+.send-button { width:33px; height:33px; border-radius:50%; background:#8faef5; }
+.composer-note { color:#bec1c7; }
+.work-pane .pane-header { min-height:43px; padding:0 13px 0 16px; background:#fff; border-bottom:1px solid #e9eaec; }
+.work-tabs { gap:2px; overflow-x:auto; scrollbar-width:none; }
+.work-tabs::-webkit-scrollbar { display:none; }
+.native-tab { display:flex; align-items:center; border-radius:7px; flex:none; }
+.native-tab.active { background:#f0f2f4; }
+.native-tab-close { border:0; padding:4px 5px; background:transparent; color:#979da5; border-radius:5px; font-size:14px; line-height:1; }
+.native-tab-close:hover { background:#e1e4e8; color:#4d5158; }
+.work-tab { max-width:190px; font-size:12px; color:#343942; padding:7px 7px; }
+.work-tab.active { background:transparent; color:#24282d; }
+.work-tab .icon { color:#808895; }
+.work-tab-add { border:0; background:transparent; color:#969ca5; border-radius:6px; padding:5px; display:grid; place-items:center; }
+.work-tab-add:hover { background:#f1f3f5; }
+.icon-button { color:#858b94; }
+.icon-button:hover { background:#f1f3f5; color:#414750; }
+.icon-button[hidden] { display:none!important; }
+@media (min-width:761px) { .app.sidebar-collapsed { grid-template-columns:0 minmax(0,1fr); } .app.sidebar-collapsed .sidebar { display:none; } .app.sidebar-collapsed .mobile-menu { display:grid; } }
+.guide { min-height:100%; display:flex; flex-direction:column; align-items:center; justify-content:center; padding:28px 20px; }
+.guide-mark { width:46px; height:46px; border:3px solid #e6e8ea; border-radius:50%; display:grid; place-items:center; color:#c8cbd0; margin-bottom:26px; }
+.guide-mark .icon { width:22px; height:22px; }
+.guide-list { width:min(100%,380px); display:grid; gap:10px; }
+.guide-item { display:flex; align-items:center; text-align:left; gap:13px; border:1px solid #e3e5e8; border-radius:15px; padding:13px 16px; background:#fff; color:#23262b; }
+.guide-item:hover { background:#fafbfc; border-color:#cfd5e1; }
+.guide-icon { width:27px; height:27px; display:grid; place-items:center; border-radius:7px; color:#5d8cf0; background:#edf3ff; flex:none; }
+.guide-item:nth-child(1) .guide-icon { color:#e5a13a; background:#fff4e4; }
+.guide-item:nth-child(2) .guide-icon { color:#608af4; background:#f0f4ff; }
+.guide-item strong { font-size:12px; font-weight:550; display:block; }
+.guide-item small { font-size:10.5px; line-height:1.4; margin-top:4px; color:#a4a8af; display:block; }
+.guide-more { margin-top:2px; }
+.vault-layout { display:flex; min-height:100%; background:#fff; }
+.vault-tree { flex:0 0 155px; width:155px; background:#f8f9fa; border-right:1px solid #eceef0; padding:16px 8px; }
+.vault-head { display:flex; justify-content:space-between; align-items:center; color:#4c5058; font-size:11px; font-weight:600; padding:0 5px 9px; }
+.vault-tree .file-btn { padding:8px 7px; font-size:11px; color:#666b75; }
+.vault-tree .file-btn.active { background:#e8edf6; color:#3568c4; }
+.vault-tree .file-btn .icon { color:#8493ab; }
+.vault-body { flex:1; min-width:0; }
+.document { padding:30px clamp(18px,3vw,36px) 45px; }
+.doc-kicker .dot { background:#93abe0; }
+.doc-title { font-size:22px; }
+.doc-tip { background:#f3f6fc; border-left-color:#a9c2ef; color:#7386a5; }
+.tip-quote { color:#4f78c5; }
+.tasks-view { padding:33px clamp(22px,4vw,48px); }
+.project-view { padding:26px clamp(20px,4vw,42px); }
+.project-file.active,.project-file:hover { background:#eff4ff; color:#426ec1; }
+.project-notice { color:#a4a8af; }
+.terminal-view { min-height:100%; padding:20px; background:#20242b; color:#d9e0e8; font:12px/1.8 ui-monospace,SFMono-Regular,Menlo,monospace; }
+.terminal-view small { display:block; color:#8a96a5; }
+.demo-label { color:#a1a6ae; font-size:10px; margin-left:auto; white-space:nowrap; }
+.mobile-menu { display:none; }
+@media (max-width:760px) {
+ .app { grid-template-columns:1fr; grid-template-rows:minmax(0,1fr); }
+ .sidebar { display:none; }
+ body.mobile-sidebar-open .sidebar { display:flex; position:fixed; z-index:10; inset:0 auto 0 0; width:280px; box-shadow:10px 0 30px #0002; }
+ .stage { grid-column:1; grid-row:1; }
+ .chat-pane { display:flex!important; width:100%; }
+ .chat-header { padding-left:12px; }
+ .mobile-menu { display:grid; }
+ .split .work-pane { display:none!important; }
+ .split.panel-open .work-pane { display:flex!important; position:absolute; inset:0; z-index:4; width:100%; }
+ .split.fullscreen .chat-pane { display:none!important; }
+ .native-splitter { display:none!important; }
+ .vault-tree { flex-basis:125px; width:125px; }
+ .document { padding:25px 17px 40px; }
+ .guide { padding:20px; }
+ .chat-scroll { padding:20px 18px; }
+ .composer-wrap { padding:4px 14px 12px; }
+}
+
+/* Knowledge work is a separate content-first surface; the project shell stays intact. */
+[hidden] { display:none !important; }
+.knowledge-entry { display:flex; align-items:center; gap:6px; height:30px; padding:0 10px; border:1px solid #e5e8ed; background:white; border-radius:7px; color:#606a78; font-size:12px; white-space:nowrap; }
+.knowledge-entry:hover { background:#f6f8fc; color:#416ab0; }
+.knowledge-entry .icon { width:15px; height:15px; }
+.knowledge-view { display:flex; flex:1; flex-direction:column; min-width:0; min-height:0; position:relative; background:#fff; }
+.knowledge-top { height:55px; flex:none; display:flex; align-items:center; gap:11px; padding:0 18px; border-bottom:1px solid #eceef1; color:#9298a2; font-size:12px; }
+.knowledge-top strong { color:#343942; font-weight:600; }
+.knowledge-top .k-breadcrumb { white-space:nowrap; overflow:hidden; text-overflow:ellipsis; }
+.knowledge-top-spacer { flex:1; }
+.k-top-button { border:1px solid #e9ebee; background:#fff; color:#626b78; border-radius:7px; font-size:11px; padding:7px 10px; white-space:nowrap; }
+.k-top-button:hover { color:#3867b9; background:#f7f9fc; }
+.k-mobile-button { display:none; }
+.knowledge-layout { display:flex; min-height:0; flex:1; position:relative; overflow:hidden; }
+.k-nav { flex:0 0 194px; min-width:0; display:flex; flex-direction:column; background:#fafbfc; border-right:1px solid #eef0f2; padding:20px 10px 12px; overflow-y:auto; }
+.k-nav-top { display:flex; align-items:center; justify-content:space-between; padding:0 7px 13px; color:#4d535d; font-size:12px; font-weight:650; }
+.k-nav-caption { margin:19px 8px 7px; color:#a1a7b0; font-size:10px; font-weight:600; letter-spacing:.03em; }
+.k-nav-btn { width:100%; border:0; background:none; color:#666d78; display:flex; align-items:center; gap:9px; border-radius:6px; padding:9px 8px; font-size:12px; text-align:left; }
+.k-nav-btn .icon { width:15px; height:15px; color:#929ca9; }
+.k-nav-btn span { min-width:0; overflow:hidden; text-overflow:ellipsis; white-space:nowrap; }
+.k-nav-btn:hover { background:#f0f2f5; }
+.k-nav-btn.active { background:#eaf0fb; color:#416bb4; font-weight:600; }
+.k-nav-btn.active .icon { color:#648bd2; }
+.k-nav-hint { margin-top:auto; padding:24px 8px 4px; color:#b2b7be; font-size:10px; line-height:1.6; }
+.k-main { flex:1; min-width:0; overflow:auto; position:relative; background:#fff; }
+.k-main.canvas-active { overflow:hidden; }
+.k-document { max-width:760px; margin:0 auto; padding:clamp(38px,6vw,72px) clamp(30px,6vw,76px) 70px; }
+.k-doc-label { display:flex; align-items:center; gap:7px; font-size:11px; color:#9ba3ae; margin-bottom:20px; }
+.k-doc-label .icon { width:14px; height:14px; color:#86a2d3; }
+.k-document .doc-title { font-size:29px; line-height:1.3; color:#252a32; margin-bottom:10px; }
+.k-document .doc-summary { font-size:13px; color:#a0a6ae; margin-bottom:32px; }
+.k-document .doc-divider { background:#eff1f3; margin-bottom:30px; }
+.k-document .doc-body h2 { font-size:15px; color:#3c434d; margin:0 0 12px; }
+.k-document .doc-body p { font-size:13.5px; line-height:2; color:#59616d; margin-bottom:32px; }
+.k-document .check-row { font-size:13px; color:#626b76; }
+.k-document .doc-tip { font-size:11px; margin-top:32px; }
+.k-doc-footer { margin-top:28px; display:flex; gap:7px; align-items:center; font-size:10px; color:#a7adb4; }
+.k-main .tasks-view { padding:55px clamp(28px,6vw,70px); }
+.k-main .tasks-view h1 { font-size:26px; }
+.k-main .task-label { font-size:13px; }
+.k-main .canvas-container { height:100%; }
+.k-ai { flex:0 0 310px; min-width:0; border-left:1px solid #edf0f3; background:#fff; display:flex; flex-direction:column; }
+.k-ai-head { min-height:58px; flex:none; border-bottom:1px solid #f0f1f3; display:flex; align-items:center; gap:9px; padding:0 16px; }
+.k-ai-logo { display:grid; place-items:center; width:27px; height:27px; background:#edf3ff; color:#658dd9; border-radius:8px; }
+.k-ai-logo .icon { width:15px; height:15px; }
+.k-ai-head strong { display:block; font-size:12px; color:#343b45; }
+.k-ai-head small { display:block; font-size:10px; color:#a8aeb6; margin-top:3px; }
+.k-ai-head .k-close-ai { margin-left:auto; display:none; }
+.k-ai-scroll { flex:1; min-height:0; overflow-y:auto; padding:20px 16px 12px; }
+.k-ai-date { text-align:center; color:#bbc0c7; font-size:10px; margin-bottom:22px; }
+.k-ai-message { margin-bottom:20px; color:#5d6672; font-size:12px; line-height:1.75; }
+.k-ai-message.user { margin-left:25px; background:#f2f5fa; border-radius:10px 10px 3px 10px; padding:10px 12px; color:#596473; white-space:pre-wrap; overflow-wrap:anywhere; }
+.k-ai-who { color:#343c49; font-size:11px; font-weight:650; margin-bottom:6px; display:flex; align-items:center; gap:7px; }
+.k-ai-who .icon { color:#7297dc; width:15px; height:15px; }
+.k-ai-message p { margin:0 0 10px; }
+.k-ai-quick { display:flex; flex-wrap:wrap; gap:6px; margin-top:12px; }
+.k-ai-quick button { border:1px solid #e6ebf3; background:#fafcff; color:#6682af; border-radius:7px; padding:6px 8px; font-size:10px; }
+.k-proposal { width:100%; text-align:left; display:flex; align-items:center; gap:9px; border:1px solid #e8ecf2; border-radius:9px; background:#fff; color:#4d6388; padding:10px; }
+.k-proposal:disabled { opacity:.55; cursor:default; }
+.k-proposal:hover:enabled { background:#f8faff; }
+.k-proposal .icon { color:#7397d4; }
+.k-proposal strong,.k-proposal small { display:block; }
+.k-proposal strong { font-size:11px; }
+.k-proposal small { font-size:10px; color:#a0a8b2; margin-top:3px; }
+.k-proposal > span:last-child { margin-left:auto; color:#8499b8; font-size:10px; white-space:nowrap; }
+.k-quote { border-left:2px solid #aac1e7; color:#8593a7; padding-left:8px; font-size:10px; margin-bottom:6px; }
+.k-ai-compose { flex:none; padding:10px 12px 14px; }
+.k-context { font-size:10px; color:#929dab; padding:0 3px 8px; overflow:hidden; white-space:nowrap; text-overflow:ellipsis; }
+.k-context .icon { width:12px; height:12px; vertical-align:-2px; margin-right:3px; }
+.k-context button { border:0; background:transparent; color:#7792bc; padding:0 3px; font-size:10px; }
+.k-composer { border:1px solid #e3e7ec; border-radius:12px; padding:10px; box-shadow:0 5px 20px #20293908; }
+.k-composer textarea { width:100%; min-height:52px; resize:vertical; border:0; outline:0; color:#515b69; font-size:12px; line-height:1.6; background:transparent; }
+.k-composer textarea::placeholder { color:#bac0c9; }
+.k-composer-bottom { display:flex; align-items:center; justify-content:space-between; color:#abb1ba; font-size:10px; }
+.k-send { border:0; border-radius:50%; width:29px; height:29px; color:#fff; background:#8daef0; display:grid; place-items:center; }
+.k-send .icon { width:15px; height:15px; }
+.k-demo { text-align:center; font-size:10px; color:#bfc4cb; padding-top:7px; }
+@media (max-width:1150px) and (min-width:761px) {
+ .k-nav { flex-basis:155px; } .k-ai { flex-basis:270px; } .k-document { padding-left:28px; padding-right:28px; }
+}
+@media (max-width:760px) {
+ .knowledge-entry { padding:0 7px; } .knowledge-entry .entry-label { display:none; }
+ .knowledge-top { padding:0 10px; gap:7px; } .knowledge-top .k-breadcrumb { max-width:120px; }
+ .k-mobile-button { display:inline-flex; } .k-nav { display:none; }
+ .knowledge-view.show-tree .k-nav { display:flex; position:absolute; z-index:5; inset:0 auto 0 0; width:210px; box-shadow:8px 0 24px #0002; }
+ .k-ai { display:none; } .knowledge-view.show-ai .k-ai { display:flex; position:absolute; z-index:6; inset:0 0 0 auto; width:min(345px,100%); box-shadow:-8px 0 24px #0002; }
+ .k-ai-head .k-close-ai { display:grid; }
+ .k-document { padding:35px 25px 55px; } .k-document .doc-title { font-size:25px; }
+}
+
+</style>
+</head>
+<body>
+<svg aria-hidden="true" width="0" height="0" style="position:absolute;overflow:hidden">
+  <symbol id="i-spark" viewBox="0 0 24 24"><path d="m12 3 1.7 5.3L19 10l-5.3 1.7L12 17l-1.7-5.3L5 10l5.3-1.7z"/><path d="m19 15 .7 2.3L22 18l-2.3.7L19 21l-.7-2.3L16 18l2.3-.7z"/></symbol>
+  <symbol id="i-chat" viewBox="0 0 24 24"><path d="M20 11.5a7.5 7.5 0 0 1-7.5 7.5H5l.8-3A7.5 7.5 0 1 1 20 11.5Z"/><path d="M8.5 10.5h7M8.5 13.5h4"/></symbol>
+  <symbol id="i-plus" viewBox="0 0 24 24"><path d="M12 5v14M5 12h14"/></symbol>
+  <symbol id="i-grid" viewBox="0 0 24 24"><rect x="4" y="4" width="7" height="7" rx="1.3"/><rect x="13" y="4" width="7" height="7" rx="1.3"/><rect x="4" y="13" width="7" height="7" rx="1.3"/><rect x="13" y="13" width="7" height="7" rx="1.3"/></symbol>
+  <symbol id="i-note" viewBox="0 0 24 24"><rect x="5" y="3" width="14" height="18" rx="2"/><path d="M8.5 8h7M8.5 12h7M8.5 16h4"/></symbol>
+  <symbol id="i-check" viewBox="0 0 24 24"><rect x="4" y="4" width="16" height="16" rx="3"/><path d="m8 12 2.5 2.5L16 9"/></symbol>
+  <symbol id="i-search" viewBox="0 0 24 24"><circle cx="10.8" cy="10.8" r="6.3"/><path d="m15.5 15.5 4.2 4.2"/></symbol>
+  <symbol id="i-folder" viewBox="0 0 24 24"><path d="M3.5 7A2.5 2.5 0 0 1 6 4.5h4l2 2h6A2.5 2.5 0 0 1 20.5 9v8.5A2.5 2.5 0 0 1 18 20H6a2.5 2.5 0 0 1-2.5-2.5Z"/></symbol>
+  <symbol id="i-canvas" viewBox="0 0 24 24"><rect x="3" y="4" width="7" height="6" rx="1.3"/><rect x="14" y="14" width="7" height="6" rx="1.3"/><path d="M10 7h3a4 4 0 0 1 4 4v3M7 10v4a3 3 0 0 0 3 3h4"/></symbol>
+  <symbol id="i-chevron" viewBox="0 0 24 24"><path d="m9 18 6-6-6-6"/></symbol>
+  <symbol id="i-down" viewBox="0 0 24 24"><path d="m7 10 5 5 5-5"/></symbol>
+  <symbol id="i-panel-left" viewBox="0 0 24 24"><rect x="3.5" y="4.5" width="17" height="15" rx="2"/><path d="M14.5 4.5v15"/></symbol>
+  <symbol id="i-panel-right" viewBox="0 0 24 24"><rect x="3.5" y="4.5" width="17" height="15" rx="2"/><path d="M9.5 4.5v15"/></symbol>
+  <symbol id="i-arrow" viewBox="0 0 24 24"><path d="M5 12h14M14 7l5 5-5 5"/></symbol>
+  <symbol id="i-up" viewBox="0 0 24 24"><path d="M12 19V5M7 10l5-5 5 5"/></symbol>
+  <symbol id="i-link" viewBox="0 0 24 24"><path d="M10 13.5a4 4 0 0 0 5.7 0l2.8-2.8a4 4 0 0 0-5.7-5.7l-1.6 1.6"/><path d="M14 10.5a4 4 0 0 0-5.7 0l-2.8 2.8a4 4 0 0 0 5.7 5.7l1.6-1.6"/></symbol>
+  <symbol id="i-close" viewBox="0 0 24 24"><path d="M6 6l12 12M18 6 6 18"/></symbol>
+  <symbol id="i-minus" viewBox="0 0 24 24"><path d="M5 12h14"/></symbol>
+  <symbol id="i-pen" viewBox="0 0 24 24"><path d="m4 20 4-.8L19 8.3 15.7 5 4.8 16zM13.8 6.9l3.3 3.3"/></symbol>
+  <symbol id="i-clock" viewBox="0 0 24 24"><circle cx="12" cy="12" r="8"/><path d="M12 7v5l3 2"/></symbol>
+  <symbol id="i-sliders" viewBox="0 0 24 24"><path d="M4 7h9m4 0h3M4 17h3m4 0h9"/><circle cx="15" cy="7" r="2"/><circle cx="9" cy="17" r="2"/></symbol>
+  <symbol id="i-terminal" viewBox="0 0 24 24"><path d="m5 7 5 5-5 5M13 17h6"/></symbol>
+  <symbol id="i-maximize" viewBox="0 0 24 24"><path d="M8 4H4v4m12-4h4v4M4 16v4h4m12-4v4h-4"/></symbol>
+  <symbol id="i-compass" viewBox="0 0 24 24"><circle cx="12" cy="12" r="8"/><path d="m15 9-2 5-4 1 2-5z"/></symbol>
+  <symbol id="i-reset" viewBox="0 0 24 24"><path d="M4 12a8 8 0 1 0 2.4-5.7L4 8.7"/><path d="M4 4v4.7h4.7"/></symbol>
+  <symbol id="i-book" viewBox="0 0 24 24"><path d="M12 6.5c-2-1.6-5-2-8-1v13c3-1 6-.6 8 1M12 6.5c2-1.6 5-2 8-1v13c-3-1-6-.6-8 1zM12 6.5v13"/></symbol>
+</svg>
+<div class="app">
+  <aside class="sidebar" aria-label="Harness 工作区与会话">
+    <div class="native-brand">
+      <img src="data:image/svg+xml;base64,PHN2ZyB4bWxucz0iaHR0cDovL3d3dy53My5vcmcvMjAwMC9zdmciIHhtbG5zOnhsaW5rPSJodHRwOi8vd3d3LnczLm9yZy8xOTk5L3hsaW5rIiB3aWR0aD0iNTAuMDAwMDAwIiBoZWlnaHQ9IjUwLjAwMDAwMCIgdmlld0JveD0iMCAwIDUwIDUwIiBmaWxsPSJub25lIj4KCTxwYXRoIGlkPSJwYXRoIiBkPSJNNDguODM1NCAxMC4wNDc5QzQ4LjMyMzIgOS43OTE5OSA0OC4xMDI1IDEwLjI3OTggNDcuODAzMiAxMC41Mjc4QzQ3LjcwMDcgMTAuNjA3OSA0Ny42MTQzIDEwLjcxMTkgNDcuNTI3MyAxMC44MDc2QzQ2Ljc3OTMgMTEuNjI0IDQ1LjkwNDggMTIuMTU5NyA0NC43NjIyIDEyLjA5NTdDNDMuMDkyMyAxMiA0MS42NjYgMTIuNTM1NiA0MC40MDU4IDEzLjgzOThDNDAuMTM3NyAxMi4yMzE5IDM5LjI0NzYgMTEuMjcyIDM3Ljg5MjYgMTAuNjU1OEMzNy4xODM2IDEwLjMzNTkgMzYuNDY2OCAxMC4wMTU2IDM1Ljk3MDIgOS4zMTk4MkMzNS42MjM1IDguODIzNzMgMzUuNTI5MyA4LjI3MTk3IDM1LjM1NiA3LjcyNzU0QzM1LjI0NTYgNy4zOTk5IDM1LjEzNTMgNy4wNjM5NiAzNC43NjUxIDcuMDA3ODFDMzQuMzYzMyA2Ljk0Mzg1IDM0LjIwNTYgNy4yODc2IDM0LjA0NzkgNy41NzU2OEMzMy40MTggOC43NTE5NSAzMy4xNzMzIDEwLjA0NzkgMzMuMTk3MyAxMS4zNTk5QzMzLjI1MjQgMTQuMzEyIDM0LjQ3MzYgMTYuNjY0MSAzNi44OTk5IDE4LjMzNTlDMzcuMTc1OCAxOC41Mjc4IDM3LjI0NjYgMTguNzE5NyAzNy4xNTk3IDE5QzM2Ljk5NDYgMTkuNTc1NyAzNi43OTc0IDIwLjEzNTcgMzYuNjI0IDIwLjcxMTlDMzYuNTEzNyAyMS4wODAxIDM2LjM0ODYgMjEuMTU5NyAzNS45NjI0IDIxQzM0LjYzMDkgMjAuNDMyMSAzMy40ODEgMTkuNTkxOCAzMi40NjQ0IDE4LjU3NTdDMzAuNzM5MyAxNi44NzIxIDI5LjE3OTIgMTQuOTkxNyAyNy4yMzM0IDEzLjUyQzI2Ljc3NjQgMTMuMTc1OCAyNi4zMTkzIDEyLjg1NiAyNS44NDY3IDEyLjU1MThDMjMuODYxOCAxMC41ODQgMjYuMTA2OSA4Ljk2Nzc3IDI2LjYyNyA4Ljc3NTg4QzI3LjE3MDQgOC41NzU2OCAyNi44MTU5IDcuODg3NyAyNS4wNTkxIDcuODk2QzIzLjMwMjIgNy45MDM4MSAyMS42OTUzIDguNTAzOTEgMTkuNjQ3IDkuMzAzNzFDMTkuMzQ3NyA5LjQyMzgzIDE5LjAzMjIgOS41MTE3MiAxOC43MDk1IDkuNTgzOThDMTYuODUwMSA5LjIyMzYzIDE0LjkxOTkgOS4xNDM1NSAxMi45MDMzIDkuMzc1OThDOS4xMDU5NiA5LjgwNzYyIDYuMDcyNzUgMTEuNjM5NiAzLjg0MzI2IDE0Ljc2ODFDMS4xNjQ1NSAxOC41Mjc4IDAuNTM0MTggMjIuNzk5OCAxLjMwNjY0IDI3LjI1NTlDMi4xMTc2OCAzMS45NTIxIDQuNDY1ODIgMzUuODM5OCA4LjA3MzczIDM4Ljg3OTlDMTEuODE1OSA0Mi4wMzIyIDE2LjEyNTUgNDMuNTc2MiAyMS4wNDEgNDMuMjgwM0MyNC4wMjY5IDQzLjEwNCAyNy4zNTE2IDQyLjY5NjMgMzEuMTAxNiAzOS40NTYxQzMyLjA0NjkgMzkuOTM2IDMzLjAzOTYgNDAuMTI3OSAzNC42ODYgNDAuMjcyQzM1Ljk1NDYgNDAuMzkyMSAzNy4xNzU4IDQwLjIwOCAzOC4xMjExIDQwLjAwNzhDMzkuNjAyMSAzOS42ODggMzkuNDk5NSAzOC4yODgxIDM4Ljk2MzkgMzguMDMyMkMzNC42MjMgMzUuOTY3OCAzNS41NzYyIDM2LjgwODEgMzQuNzEgMzYuMTI3OUMzNi45MTU1IDMzLjQ2MzkgNDAuMjQwMiAzMC42OTU4IDQxLjU0IDIxLjcyOEM0MS42NDI2IDIxLjAxNjEgNDEuNTU1NyAyMC41Njc5IDQxLjU0IDE5Ljk5MTdDNDEuNTMyMiAxOS42Mzk2IDQxLjYxMDggMTkuNTAzOSA0Mi4wMDQ5IDE5LjQ2MzlDNDMuMDkyMyAxOS4zMzU5IDQ0LjE0NzkgMTkuMDMxNyA0NS4xMTY3IDE4LjQ4NzhDNDcuOTI5MiAxNi45MTk5IDQ5LjA2NCAxNC4zNDM4IDQ5LjMzMTUgMTEuMjU1OUM0OS4zNzExIDEwLjc4MzcgNDkuMzIzNyAxMC4yOTU5IDQ4LjgzNTQgMTAuMDQ3OVpNMjQuMzI2MiAzNy44Mzk4QzIwLjExOTYgMzQuNDYzOSAxOC4wNzkxIDMzLjM1MjEgMTcuMjM1OCAzMy4zOTk5QzE2LjQ0ODIgMzMuNDQ4MiAxNi41ODk4IDM0LjM2ODIgMTYuNzYzMiAzNC45Njc4QzE2Ljk0NDMgMzUuNTYwMSAxNy4xODEyIDM1Ljk2ODMgMTcuNTExNyAzNi40ODc4QzE3Ljc0MDIgMzYuODMyIDE3Ljg5NzkgMzcuMzQ0MiAxNy4yODMyIDM3LjcyOEMxNS45MjgyIDM4LjU4NCAxMy41NzI4IDM3LjQzOTkgMTMuNDYyNCAzNy4zODM4QzEwLjcyMDcgMzUuNzM1OCA4LjQyODIyIDMzLjU2MDEgNi44MTM0OCAzMC41ODRDNS4yNTM0MiAyNy43MTk3IDQuMzQ3NjYgMjQuNjQ3OSA0LjE5Nzc1IDIxLjM2NzdDNC4xNTgyIDIwLjU3NTcgNC4zODY3MiAyMC4yOTU5IDUuMTU4NjkgMjAuMTUxOUM2LjE3NTI5IDE5Ljk2IDcuMjIzMTQgMTkuOTE5OSA4LjIzOTI2IDIwLjA3MThDMTIuNTMyNyAyMC43MTE5IDE2LjE4ODUgMjIuNjcxOSAxOS4yNTI5IDI1Ljc3NTlDMjEuMDAyIDI3LjU0MzkgMjIuMzI1MiAyOS42NTU4IDIzLjY4ODUgMzEuNzIwMkMyNS4xMzc3IDMzLjkxMjEgMjYuNjk3OCAzNiAyOC42ODMxIDM3LjcxMTlDMjkuMzg0MyAzOC4zMTIgMjkuOTQzNCAzOC43NjgxIDMwLjQ3OSAzOS4xMDRDMjguODY0MyAzOS4yODgxIDI2LjE2OTkgMzkuMzI4MSAyNC4zMjYyIDM3LjgzOThaTTI2LjM0MzMgMjQuNjAwMUMyNi4zNDMzIDI0LjI0OCAyNi42MTkxIDIzLjk2NzggMjYuOTY1OCAyMy45Njc4QzI3LjA0NDQgMjMuOTY3OCAyNy4xMTUyIDIzLjk4MzkgMjcuMTc4MiAyNC4wMDc4QzI3LjI2NTEgMjQuMDQgMjcuMzQzOCAyNC4wODc5IDI3LjQwNjcgMjQuMTYwMkMyNy41MTcxIDI0LjI3MiAyNy41ODAxIDI0LjQzMjEgMjcuNTgwMSAyNC42MDAxQzI3LjU4MDEgMjQuOTUyMSAyNy4zMDQyIDI1LjIzMTkgMjYuOTU3NSAyNS4yMzE5QzI2LjYxMDggMjUuMjMxOSAyNi4zNDMzIDI0Ljk1MjEgMjYuMzQzMyAyNC42MDAxWk0zMi42MDY0IDI3Ljg3OTlDMzIuMjA0NiAyOC4wNDc5IDMxLjgwMjcgMjguMTkxOSAzMS40MTY1IDI4LjIwOEMzMC44MTc5IDI4LjIzOTcgMzAuMTY0MSAyNy45OTIyIDI5LjgwOTYgMjcuNjg4QzI5LjI1ODMgMjcuMjE1OCAyOC44NjQzIDI2Ljk1MjEgMjguNjk4NyAyNi4xMjc5QzI4LjYyNzkgMjUuNzc1OSAyOC42Njc1IDI1LjIzMTkgMjguNzMwNSAyNC45MTk5QzI4Ljg3MjEgMjQuMjQ4IDI4LjcxNDQgMjMuODE1OSAyOC4yNDk1IDIzLjQyMzhDMjcuODcxNiAyMy4xMDQgMjcuMzkxMSAyMy4wMTYxIDI2Ljg2MzMgMjMuMDE2MUMyNi42NjYgMjMuMDE2MSAyNi40ODQ5IDIyLjkyNzcgMjYuMzUxMSAyMi44NTZDMjYuMTMwNCAyMi43NDQxIDI1Ljk0OTIgMjIuNDYzOSAyNi4xMjI2IDIyLjEyMDFDMjYuMTc3NyAyMi4wMDc4IDI2LjQ0NTggMjEuNzM1OCAyNi41MDg4IDIxLjY4OEMyNy4yMjU2IDIxLjI3MiAyOC4wNTI3IDIxLjQwNzcgMjguODE2OSAyMS43MTk3QzI5LjUyNTkgMjIuMDE2MSAzMC4wNjE1IDIyLjU2MDEgMzAuODM0IDIzLjMyODFDMzEuNjIxNiAyNC4yNTU5IDMxLjc2MzIgMjQuNTExNyAzMi4yMTI0IDI1LjIwOEMzMi41NjY5IDI1Ljc1MiAzMi44OTAxIDI2LjMxMiAzMy4xMTA0IDI2Ljk1MjFDMzMuMjQ0NiAyNy4zNTIxIDMzLjA3MTMgMjcuNjgwMiAzMi42MDY0IDI3Ljg3OTlaIiBmaWxsPSIjMDAwIiBmaWxsLW9wYWNpdHk9IjEuMDAwMDAwIiBmaWxsLXJ1bGU9Im5vbnplcm8iLz4KPC9zdmc+Cg==" alt="">
+      <span class="native-wordmark">deepseek</span><span class="native-badge">HARNESS</span>
+      <button class="icon-button" type="button" data-action="toggle-sidebar" aria-label="收起侧边栏" title="收起侧边栏"><svg class="icon"><use href="#i-panel-left"></use></svg></button>
+    </div>
+    <button class="new-chat" type="button" data-action="new-chat"><svg class="icon small-icon"><use href="#i-plus"></use></svg>新会话</button>
+    <nav class="native-links" aria-label="Harness 原有入口">
+      <button class="native-link" type="button" data-action="host-only" data-host-name="插件"><svg class="icon"><use href="#i-grid"></use></svg>插件</button>
+      <button class="native-link" type="button" data-action="host-only" data-host-name="自动化任务"><svg class="icon"><use href="#i-clock"></use></svg>自动化任务</button>
+      <button class="native-link" type="button" data-action="host-only" data-host-name="更多"><svg class="icon"><use href="#i-grid"></use></svg>更多</button>
+    </nav>
+    <div class="native-work-head"><span>工作区</span><div class="native-work-actions">
+      <button class="icon-button" type="button" data-action="open-session-search" aria-label="搜索会话" title="搜索会话"><svg class="icon small-icon"><use href="#i-search"></use></svg></button>
+      <button class="icon-button" type="button" data-action="host-only" data-host-name="视图选项" aria-label="视图选项" title="视图选项"><svg class="icon small-icon"><use href="#i-sliders"></use></svg></button>
+      <button class="icon-button" type="button" data-action="new-project" aria-label="添加工作区" title="添加工作区"><svg class="icon small-icon"><use href="#i-plus"></use></svg></button>
+    </div></div>
+    <div class="sidebar-scroll" id="thread-list"></div>
+    <div class="side-bottom"><button type="button" data-action="host-only" data-host-name="账号菜单">··· <span>更多</span></button></div>
+  </aside>
+  <main class="stage">
+    <div class="split" id="split" data-focus="chat">
+      <section class="chat-pane" aria-label="Harness 对话">
+        <div class="chat-header">
+          <div class="chat-head-row">
+            <div class="chat-head-title"><button class="icon-button mobile-menu" type="button" data-action="toggle-sidebar" aria-label="打开侧边栏"><svg class="icon"><use href="#i-panel-left"></use></svg></button><strong id="chat-title">梳理服务端结构</strong><span class="native-mode">♧ 标准模式</span></div>
+            <div class="chat-head-actions"><button class="knowledge-entry" type="button" data-action="open-knowledge" title="打开知识工作区"><svg class="icon"><use href="#i-book"></use></svg><span class="entry-label">知识工作区</span></button><button class="icon-button" type="button" data-action="host-only" data-host-name="会话操作" aria-label="会话操作">···</button><button class="icon-button" type="button" data-action="open-right" aria-label="打开右侧边栏" title="打开右侧边栏"><svg class="icon"><use href="#i-panel-right"></use></svg></button></div>
+          </div>
+          <nav class="native-tabs" aria-label="会话视图"><button class="active" type="button">对话</button><button type="button" data-action="host-only" data-host-name="轨迹">轨迹</button><button type="button" data-action="host-only" data-host-name="更多视图">···</button></nav>
+        </div>
+        <div class="chat-scroll" id="chat-scroll"><div class="chat-inner" id="messages"></div></div>
+        <div class="composer-wrap"><div class="composer-inner">
+          <form class="composer" id="chat-form">
+            <textarea id="chat-input" rows="2" placeholder="发消息或创建任务, / 调用指令, @ 文件或对话" aria-label="输入对话内容"></textarea>
+            <div class="composer-bottom"><div class="composer-tools">
+              <button class="composer-plus" type="button" data-action="host-only" data-host-name="添加文件或调用指令" aria-label="添加文件或调用指令"><svg class="icon"><use href="#i-plus"></use></svg></button>
+              <button class="composer-permission" type="button" data-action="host-only" data-host-name="访问模式">♧ 工作区内修改 ﹀</button>
+              <button class="composer-chip" type="button" data-action="attach-current" title="切换当前内容引用" aria-pressed="true" hidden><svg class="icon"><use href="#i-link"></use></svg><span id="context-chip"></span></button>
+            </div><div class="composer-tools"><button class="model-button" type="button" data-action="host-only" data-host-name="模型选择">请选择模型 ﹀</button><button class="send-button" type="submit" aria-label="发送"><svg class="icon"><use href="#i-up"></use></svg></button></div></div>
+          </form>
+          <div class="composer-note">示例对话 · 不连接真实 Harness 或模型</div>
+        </div></div>
+      </section>
+      <button class="native-splitter" id="splitter" type="button" aria-label="调整右侧栏宽度" title="拖动调整宽度"></button>
+      <section class="work-pane" id="work-pane" aria-label="Harness 右侧边栏">
+        <div class="pane-header">
+          <div class="work-tabs" id="work-tabs"></div>
+          <div class="header-actions">
+            <span class="demo-label">原型</span>
+            <button class="icon-button" type="button" data-action="host-only" data-host-name="分栏" aria-label="分栏" title="分栏"><svg class="icon"><use href="#i-panel-left"></use></svg></button>
+            <button class="icon-button" type="button" data-action="toggle-fullscreen" aria-label="全屏" title="全屏"><svg class="icon"><use href="#i-maximize"></use></svg></button>
+            <button class="icon-button" type="button" data-action="close-right" aria-label="收起右侧边栏" title="收起右侧边栏"><svg class="icon"><use href="#i-panel-right"></use></svg></button>
+          </div>
+        </div>
+        <div class="work-scroll" id="work-content"></div>
+      </section>
+    </div>
+
+    <section class="knowledge-view" id="knowledge-view" aria-label="知识工作区" hidden>
+      <header class="knowledge-top">
+        <button class="icon-button mobile-menu" type="button" data-action="toggle-sidebar" aria-label="打开项目与会话"><svg class="icon"><use href="#i-panel-left"></use></svg></button>
+        <button class="k-top-button k-mobile-button" type="button" data-action="toggle-knowledge-tree">目录</button>
+        <span class="k-breadcrumb">知识工作区 <span> / </span> <strong id="knowledge-breadcrumb">个人 AI 工作台</strong></span>
+        <span class="knowledge-top-spacer"></span>
+        <button class="k-top-button k-mobile-button" type="button" data-action="toggle-knowledge-ai">AI 辅助</button>
+        <button class="k-top-button" type="button" data-action="return-project">返回项目会话</button>
+      </header>
+      <div class="knowledge-layout">
+        <aside class="k-nav" aria-label="知识目录"><div class="k-nav-top"><span>我的知识库</span><button class="side-action" type="button" data-action="new-note" title="新建笔记" aria-label="新建笔记"><svg class="icon small-icon"><use href="#i-plus"></use></svg></button></div><div id="knowledge-tree"></div><div class="k-nav-hint">示例知识库 · 本机保存<br>不读取真实文件</div></aside>
+        <div class="k-main" id="knowledge-content"></div>
+        <aside class="k-ai" aria-label="AI 辅助侧栏">
+          <div class="k-ai-head"><span class="k-ai-logo"><svg class="icon"><use href="#i-spark"></use></svg></span><span><strong>AI 辅助</strong><small>围绕当前内容一起思考</small></span><button class="icon-button k-close-ai" type="button" data-action="toggle-knowledge-ai" aria-label="关闭 AI 辅助"><svg class="icon"><use href="#i-close"></use></svg></button></div>
+          <div class="k-ai-scroll" id="knowledge-messages"></div>
+          <div class="k-ai-compose"><div class="k-context" id="knowledge-context"></div><form class="k-composer" id="knowledge-form"><textarea id="knowledge-input" rows="2" placeholder="关于当前内容，问点什么…" aria-label="输入 AI 辅助内容"></textarea><div class="k-composer-bottom"><span>当前内容作为上下文</span><button class="k-send" type="submit" aria-label="发送到 AI 辅助"><svg class="icon"><use href="#i-up"></use></svg></button></div></form><div class="k-demo">预设示例 · 不连接真实模型</div></div>
+        </aside>
+      </div>
+    </section>
+  </main>
+</div>
+<dialog id="review-dialog" aria-labelledby="review-title">
+  <div class="modal">
+    <div class="modal-head"><div><div class="modal-eyebrow">AI 的修改建议</div><h2 id="review-title">让协作原则更清晰</h2><p class="modal-description" id="review-desc">个人 AI 工作台 · 协作原则</p></div><button class="icon-button" type="button" data-action="close-review" aria-label="关闭"><svg class="icon"><use href="#i-close"></use></svg></button></div>
+    <div class="modal-body"><div class="diff-label"><span style="color:#c67f86">●</span> 当前内容</div><div class="diff-row before" id="review-before"></div><div class="diff-label"><span style="color:#74ad8e">●</span> 建议修改为</div><div class="diff-row after" id="review-after"></div></div>
+    <div class="modal-foot"><span class="modal-hint">接受之前，原内容不会发生变化。</span><div class="modal-buttons"><button class="button" type="button" data-action="reject-review">放弃建议</button><button class="button primary" type="button" data-action="apply-review">应用建议</button></div></div>
+  </div>
+</dialog>
+<dialog id="search-dialog" aria-label="搜索项目、对话和知识库"><div class="modal search-modal"><div class="search-box"><svg class="icon"><use href="#i-search"></use></svg><input id="search-input" autocomplete="off" placeholder="搜索项目、对话和笔记…" aria-label="搜索示例项目与知识库"><button class="icon-button" type="button" data-action="close-search" aria-label="关闭搜索"><svg class="icon"><use href="#i-close"></use></svg></button></div><div class="search-results" id="search-results"></div></div></dialog>
+<dialog id="project-picker" aria-labelledby="picker-title"><div class="modal search-modal"><div class="modal-head"><div><div class="modal-eyebrow">工作区</div><h2 id="picker-title">项目与对话</h2></div><button class="icon-button" type="button" data-action="close-project-picker" aria-label="关闭"><svg class="icon"><use href="#i-close"></use></svg></button></div><div class="search-results" id="project-picker-content"></div><div class="modal-foot"><span class="modal-hint">示例项目与对话</span><button class="button" type="button" data-action="new-project">添加示例项目</button></div></div></dialog>
+<dialog id="project-dialog" aria-labelledby="project-title"><div class="modal search-modal"><div class="modal-head"><div><div class="modal-eyebrow">项目与对话</div><h2 id="project-title">添加示例项目</h2></div><button class="icon-button" type="button" data-action="close-project-dialog" aria-label="关闭"><svg class="icon"><use href="#i-close"></use></svg></button></div><form id="project-form"><div class="modal-body"><input class="create-input" id="project-name" required maxlength="40" autocomplete="off" placeholder="示例项目名称" aria-label="示例项目名称"></div><div class="modal-foot"><span class="modal-hint">演示用项目，不会读取电脑目录。</span><div class="modal-buttons"><button class="button" type="button" data-action="close-project-dialog">取消</button><button class="button primary" type="submit">创建示例项目</button></div></div></form></div></dialog>
+<dialog id="new-dialog" aria-labelledby="new-title"><div class="modal search-modal"><div class="modal-head"><div><div class="modal-eyebrow">我的知识库</div><h2 id="new-title">新建笔记</h2></div><button class="icon-button" type="button" data-action="close-new" aria-label="关闭"><svg class="icon"><use href="#i-close"></use></svg></button></div><form id="new-form"><div class="modal-body"><input class="create-input" id="new-name" required maxlength="60" autocomplete="off" placeholder="给这篇笔记起个名字" aria-label="笔记名称"></div><div class="modal-foot"><span class="modal-hint">创建在演示知识库中。</span><div class="modal-buttons"><button class="button" type="button" data-action="close-new">取消</button><button class="button primary" type="submit">创建笔记</button></div></div></form></div></dialog>
+<div class="toast" id="toast" role="status" aria-live="polite"></div>
+<script>
+(function () {
+  'use strict';
+  const key = 'dogo-workspace-prototype-v1';
+  const icon = function (name, cls) { return '<svg class="icon ' + (cls || '') + '" aria-hidden="true"><use href="#i-' + name + '"></use></svg>'; };
+  const esc = function (value) { return String(value == null ? '' : value).replace(/[&<>"']/g, function (c) { return ({'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;',"'":'&#39;'})[c]; }); };
+  const defaults = {
+    focus:'chat', section:'note', noteId:'workspace', taskFilter:'open', zoom:1, contextEnabled:true, quote:null,
+    chatTitle:'从想法到工作台',
+    notes: {
+      workspace: { title:'个人 AI 工作台', subtitle:'让想法不止停留在聊天里。', overview:'一个把对话、笔记与可视化连接起来的个人空间。可以先和 AI 一起探索问题，也可以回到文档里认真写作。', principle:'对话可以引用已有笔记；AI 可以按需查找相关资料，与我一起梳理想法。', tasks:[
+        {id:'task-1', text:'梳理笔记和对话之间的交互', done:false},
+        {id:'task-2', text:'设计可以继续编辑的画布', done:false},
+        {id:'task-3', text:'确定 AI 修改内容的确认方式', done:false}
+      ]},
+      ideas: {title:'灵感收集',subtitle:'留给还没有成形的想法。',overview:'好的工具应该让记录和思考自然发生。可以先记下一句话，等有空再把它发展成文章、清单或一张图。',principle:'内容由自己掌握；需要时让 AI 帮忙查找、提问和整理。',tasks:[]}
+    },
+    nodes:[
+      {id:'root',title:'个人 AI 工作台',sub:'一个连续的工作空间',x:50,y:16,type:'root'},
+      {id:'chat',title:'对话与探索',sub:'讨论 · 提问 · 整理',x:20,y:49,type:'chat'},
+      {id:'notes',title:'知识与待办',sub:'笔记 · 记录 · 行动',x:50,y:49,type:'note'},
+      {id:'canvas',title:'空间画布',sub:'连接 · 构思 · 可视化',x:80,y:49,type:'canvas'},
+      {id:'local',title:'本地知识库',sub:'内容由自己掌握',x:50,y:81,type:'folder'}
+    ],
+    edges:[['root','chat'],['root','notes'],['root','canvas'],['notes','local']],
+    messages:[
+      {kind:'user',text:'梳理一下我对个人 AI 工作台的想法，再画一张产品结构图。'},
+      {kind:'intro'},
+      {kind:'proposal',status:'pending',noteId:'workspace'}
+    ]
+  };
+  let state;
+  try { const saved = JSON.parse(localStorage.getItem(key) || 'null'); state = saved && saved.notes && saved.nodes && saved.messages ? Object.assign({}, defaults, saved) : structuredClone(defaults); }
+  catch (_) { state = structuredClone(defaults); }
+  if (!Array.isArray(state.threads) || !state.threads.length) { state.threadId='demo'; state.threads=[{id:'demo',title:state.chatTitle,messages:state.messages}]; }
+  if (!state.threadId) state.threadId=state.threads[0].id;
+  if (!Array.isArray(state.projects)) {
+    state.projects=[{id:'dogo',name:'DogO',open:true},{id:'site',name:'示例网站',open:true}];
+    state.threads.push(
+      {id:'dogo-server',projectId:'dogo',title:'梳理服务端结构',section:'project',contextEnabled:true,messages:[{kind:'user',text:'帮我梳理一下这个项目的服务端结构。'},{kind:'project-intro'}]},
+      {id:'dogo-plugin',projectId:'dogo',title:'整理插件改动',section:'project',contextEnabled:true,messages:[{kind:'user',text:'看看这个项目最近有哪些插件改动。'},{kind:'project-intro'}]},
+      {id:'site-home',projectId:'site',title:'调整首页布局',section:'project',contextEnabled:true,messages:[{kind:'user',text:'帮我看看首页布局。'},{kind:'project-intro'}]}
+    );
+  }
+  if (typeof state.contextEnabled !== 'boolean') state.contextEnabled=true;
+  if (!Number.isFinite(state.uiVersion) || state.uiVersion<2) {
+    const old=state.threads.find(function(t){return t.id===state.threadId;});
+    if(old){old.title=state.chatTitle;old.messages=state.messages;old.noteId=state.noteId;old.contextEnabled=state.contextEnabled;old.quote=state.quote;}
+    const initial=state.threads.find(function(t){return t.id==='dogo-server';})||old||state.threads[0];
+    state.threads.forEach(function(t){if(['dogo-server','dogo-plugin','site-home'].includes(t.id))t.section='guide';});
+    state.threadId=initial.id;state.chatTitle=initial.title;state.messages=initial.messages||[];
+    state.focus='chat';state.section='guide';state.panelOpen=true;state.panelFull=false;state.workWidth=45;state.uiVersion=2;
+  }
+  if (typeof state.panelOpen!=='boolean') state.panelOpen=true;
+  if (!Array.isArray(state.rightTabs)||!state.rightTabs.length) state.rightTabs=[state.section||'guide'];
+  if (!state.rightTabs.includes(state.section)) state.rightTabs.push(state.section);
+  if (!Number.isFinite(state.workWidth)) state.workWidth=45;
+  if (state.uiVersion!==3) {
+    if (['note','canvas','tasks'].includes(state.section)) state.knowledgeView=state.section;
+    state.knowledgeNoteId=state.noteId || 'workspace';
+    state.threads.forEach(function(t){
+      if (['note','canvas','tasks'].includes(t.section)) t.section='guide';
+      if (Array.isArray(t.rightTabs)) { t.rightTabs=t.rightTabs.filter(function(x){return !['note','canvas','tasks'].includes(x);}); if(!t.rightTabs.length)t.rightTabs=['guide']; }
+    });
+    if (['note','canvas','tasks'].includes(state.section)) state.section='guide';
+    state.rightTabs=state.rightTabs.filter(function(x){return !['note','canvas','tasks'].includes(x);});
+    if(!state.rightTabs.length)state.rightTabs=['guide'];
+    state.appMode='project';state.uiVersion=3;
+  }
+  if (!['project','knowledge'].includes(state.appMode)) state.appMode='project';
+  if (!['note','canvas','tasks'].includes(state.knowledgeView)) state.knowledgeView='note';
+  if (!state.notes[state.knowledgeNoteId]) state.knowledgeNoteId='workspace';
+  if (!Array.isArray(state.knowledgeMessages)) state.knowledgeMessages=[];
+  if (!state.knowledgeQuote) state.knowledgeQuote=null;
+  let knowledgeActiveProposal=null;
+  let searchScope='sessions';
+  let activeProposal = null;
+  let lastSelection = null;
+  let connecting = false;
+  let connectionStart = null;
+  let toastTimer;
+  const split = document.getElementById('split');
+  const work = document.getElementById('work-content');
+  const messages = document.getElementById('messages');
+  const searchDialog = document.getElementById('search-dialog');
+  const reviewDialog = document.getElementById('review-dialog');
+  const newDialog = document.getElementById('new-dialog');
+  const projectDialog = document.getElementById('project-dialog');
+  const projectPicker = document.getElementById('project-picker');
+  function currentThread() { return state.threads.find(function(t){return t.id===state.threadId;}); }
+  function currentProject() { const t=currentThread(); return t && t.projectId ? state.projects.find(function(p){return p.id===t.projectId;}) : null; }
+  function persist() {
+    const thread=currentThread();
+    if(thread){thread.title=state.chatTitle;thread.messages=state.messages;thread.section=state.section;thread.noteId=state.noteId;thread.contextEnabled=state.contextEnabled;thread.quote=state.quote;thread.projectFile=state.projectFile;thread.rightTabs=state.rightTabs.slice();thread.panelOpen=state.panelOpen;thread.panelFull=state.panelFull;}
+    try { localStorage.setItem(key,JSON.stringify(state)); } catch (_) {}
+  }
+  function toast(text) { const t=document.getElementById('toast'); t.textContent=text; t.classList.add('show'); clearTimeout(toastTimer); toastTimer=setTimeout(function(){t.classList.remove('show');},2100); }
+  function note() { return state.notes[state.noteId] || state.notes.workspace; }
+  function focus(mode) {
+    state.focus=mode; split.dataset.focus=mode;
+    document.querySelectorAll('[data-action="focus-chat"],[data-action="focus-work"]').forEach(function (b) { const selected=b.dataset.action === 'focus-'+mode; b.classList.toggle('active',selected); b.setAttribute('aria-pressed',String(selected)); });
+    updateNav(); renderThreads(); persist();
+  }
+  function activateSection(section) {
+    if(!Array.isArray(state.rightTabs))state.rightTabs=[];
+    if(!state.rightTabs.includes(section)) {
+      const guideIndex=state.rightTabs.indexOf('guide');
+      if(section!=='guide'&&state.section==='guide'&&guideIndex>=0)state.rightTabs.splice(guideIndex,1,section);
+      else state.rightTabs.push(section);
+    }
+    state.section=section;state.panelOpen=true;
+  }
+  function openSection(section, makeFocus) {
+    if (['note','canvas','tasks'].includes(section)) { showKnowledge(section); return; }
+    activateSection(section);lastSelection=null;connecting=false;connectionStart=null;
+    if (makeFocus) focus('work');
+    renderWorkspace(); renderTabs(); updateNav(); persist();
+  }
+  function openNote(id, makeFocus) {
+    if (!state.notes[id]) return;
+    showKnowledge('note',id);
+  }
+  function updateNav() {
+    const knowledge=['note','canvas','tasks'].includes(state.section);
+    const context=state.quote?'摘录 · '+state.quote.title:state.section==='canvas'?'工作台结构':state.section==='tasks'?'待办事项':note().title;
+    document.getElementById('context-chip').textContent=state.contextEnabled?context:'未关联内容';
+    const chip=document.querySelector('[data-action="attach-current"]');
+    chip.hidden=!knowledge&&!state.quote;
+    chip.classList.toggle('off',!state.contextEnabled);chip.setAttribute('aria-pressed',String(state.contextEnabled));
+    chip.title=state.quote?'移除选中的摘录':'切换当前内容引用';
+    document.getElementById('chat-title').textContent=state.chatTitle;
+    document.getElementById('work-pane').hidden=!state.panelOpen;
+    document.getElementById('splitter').hidden=!state.panelOpen||!!state.panelFull;
+    document.querySelector('[data-action="open-right"]').hidden=!!state.panelOpen;
+    split.classList.toggle('panel-open',!!state.panelOpen);
+    split.classList.toggle('fullscreen',!!state.panelFull&&!!state.panelOpen);
+    split.style.setProperty('--work-width',state.workWidth+'%');
+    const full=document.querySelector('[data-action="toggle-fullscreen"]');
+    full.setAttribute('aria-label',state.panelFull?'退出全屏':'全屏');
+    full.title=state.panelFull?'退出全屏':'全屏';
+  }
+  function renderThreads() {
+    function rows(projectId) {
+      return state.threads.filter(function(t){return (t.projectId||null)===projectId;}).map(function(t){
+        return '<button type="button" class="file-btn workspace-thread '+(state.appMode==='project'&&state.threadId===t.id?'active':'')+'" data-thread="'+esc(t.id)+'">'+icon('chat')+'<span>'+esc(t.title)+'</span></button>';
+      }).join('');
+    }
+    const groups=state.projects.map(function(p){
+      return '<div class="workspace-row"><button type="button" class="workspace-name" data-toggle-project="'+esc(p.id)+'" aria-expanded="'+String(p.open!==false)+'">'+icon(p.open!==false?'down':'chevron','workspace-chevron')+icon('folder')+'<span>'+esc(p.name)+'</span></button><button type="button" class="workspace-add" data-new-project-thread="'+esc(p.id)+'" aria-label="在 '+esc(p.name)+' 新建对话" title="在此项目新建对话">'+icon('plus')+'</button></div>'+(p.open!==false?rows(p.id):'');
+    }).join('');
+    const ungrouped=rows(null);
+    document.getElementById('thread-list').innerHTML=groups+(ungrouped?'<div class="ungrouped-label">未分组</div>'+ungrouped:'');
+  }
+  function renderProjectPicker() {
+    function rows(projectId) {
+      return state.threads.filter(function(t){return (t.projectId||null)===projectId;}).map(function(t){return '<button class="search-result" type="button" data-picker-thread="'+esc(t.id)+'">'+icon('chat')+'<span><strong>'+esc(t.title)+'</strong><small>示例对话</small></span></button>';}).join('');
+    }
+    document.getElementById('project-picker-content').innerHTML=state.projects.map(function(p){return '<div class="search-section">'+esc(p.name)+'</div>'+rows(p.id)+'<button class="search-result" type="button" data-picker-new="'+esc(p.id)+'">'+icon('plus')+'<span><strong>在此项目新建对话</strong></span></button>';}).join('')+'<div class="search-section">未分组</div>'+rows(null);
+  }
+  function openThread(id) {
+    showProject();
+    persist();
+    const t=state.threads.find(function(x){return x.id===id;});
+    if(!t)return;
+    state.threadId=t.id;state.chatTitle=t.title;state.messages=t.messages||[];
+    const project=state.projects.find(function(p){return p.id===t.projectId;});if(project)project.open=true;
+    state.section=t.section||'guide';state.rightTabs=Array.isArray(t.rightTabs)&&t.rightTabs.length?t.rightTabs.slice():[state.section];
+    state.panelOpen=typeof t.panelOpen==='boolean'?t.panelOpen:false;state.panelFull=!!t.panelFull&&state.panelOpen;
+    if(!state.rightTabs.includes(state.section))state.rightTabs.push(state.section);
+    state.noteId=t.noteId&&state.notes[t.noteId]?t.noteId:'workspace';
+    state.contextEnabled=typeof t.contextEnabled==='boolean'?t.contextEnabled:true;
+    state.quote=t.quote||null;state.projectFile=t.projectFile||'README.md';
+    connecting=false;connectionStart=null;lastSelection=null;
+    focus('chat');renderWorkspace();renderTabs();renderMessages(false);renderThreads();persist();document.body.classList.remove('mobile-sidebar-open');
+  }
+  function createThread(projectId) {
+    persist();
+    const id='thread-'+Date.now()+'-'+Math.random().toString(36).slice(2,5);
+    const project=state.projects.find(function(p){return p.id===projectId;});
+    if(project)project.open=true;
+    state.threads.unshift({id:id,projectId:project?project.id:null,title:'新会话',messages:[],section:'guide',rightTabs:['guide'],panelOpen:false,panelFull:false,contextEnabled:true});
+    openThread(id);toast(project?'已在「'+project.name+'」新建示例对话':'已新建未分组示例对话');
+  }
+  function renderNoteList() {
+    const list=document.getElementById('note-list');if(!list)return;
+    list.innerHTML=Object.entries(state.notes).map(function(entry) {
+      const id=entry[0], n=entry[1];
+      return '<button type="button" class="file-btn '+(state.focus==='work' && state.section==='note' && state.noteId===id?'active':'')+'" data-note="'+esc(id)+'">'+icon('note')+'<span>'+esc(n.title)+'</span></button>';
+    }).join('');
+  }
+  function renderTabs() {
+    const map={
+      guide:{label:'开始',icon:'compass'},
+      project:{label:'文件',icon:'folder'},
+      terminal:{label:'终端',icon:'terminal'},
+      note:{label:'知识库',icon:'book'},
+      tasks:{label:'待办',icon:'check'},
+      canvas:{label:'画布',icon:'canvas'}
+    };
+    document.getElementById('work-tabs').innerHTML=state.rightTabs.map(function(name){
+      const tab=map[name]||map.guide, active=name===state.section;
+      return '<span class="native-tab '+(active?'active':'')+'"><button class="work-tab '+(active?'active':'')+'" type="button" data-open-right-tab="'+esc(name)+'">'+icon(tab.icon)+'<span>'+esc(tab.label)+'</span></button>'+(name==='guide'&&state.rightTabs.length===1?'':'<button class="native-tab-close" type="button" data-close-right-tab="'+esc(name)+'" aria-label="关闭'+esc(tab.label)+'标签">×</button>')+'</span>';
+    }).join('')+'<button class="work-tab-add" type="button" data-action="show-guide" aria-label="打开更多工具" title="打开更多工具">'+icon('plus','small-icon')+'</button>';
+    updateNav();
+  }
+  function renderDocument() {
+    const n=note(), list=(n.tasks||[]).map(function(t){return '<label class="check-row '+(t.done?'done':'')+'"><input type="checkbox" data-task="'+esc(t.id)+'" data-task-note="'+esc(state.noteId)+'" '+(t.done?'checked':'')+'><span>'+esc(t.text)+'</span></label>';}).join('');
+    work.innerHTML='<div class="vault-layout"><aside class="vault-tree"><div class="vault-head"><span>知识库</span><button class="side-action" type="button" data-action="new-note" aria-label="新建笔记">'+icon('plus','small-icon')+'</button></div><button class="file-btn" type="button" data-action="open-search">'+icon('search')+'<span>搜索笔记</span></button><div class="folder-row">'+icon('folder','small-icon')+' 我的笔记</div><div id="note-list"></div></aside><div class="vault-body"><article class="document"><div class="doc-kicker"><span class="dot"></span> 笔记 <span>·</span> 示例知识库</div>'+
+      '<h1 class="doc-title" contenteditable="true" spellcheck="false" data-field="title" aria-label="笔记标题">'+esc(n.title)+'</h1>'+
+      '<p class="doc-summary" contenteditable="true" spellcheck="false" data-field="subtitle" aria-label="笔记摘要">'+esc(n.subtitle)+'</p><div class="doc-divider"></div>'+
+      '<div class="doc-body"><h2>想法</h2><p contenteditable="true" spellcheck="false" data-field="overview" aria-label="想法正文">'+esc(n.overview)+'</p>'+
+      '<h2>协作原则</h2><p contenteditable="true" spellcheck="false" data-field="principle" aria-label="协作原则">'+esc(n.principle)+'</p>'+
+      (list?'<h2>接下来</h2><div class="doc-list">'+list+'</div>':'')+
+      '<div class="doc-tip">'+icon('spark','small-icon')+'<span>点击文字即可编辑。</span><button type="button" class="tip-quote" data-action="quote-selection">引用选区</button><button type="button" class="tip-quote" data-action="quick-improve">请 AI 提建议</button></div></div>'+
+      '<div class="doc-footer"><span class="saved-dot"></span><span id="save-status">示例内容已保存在本机</span></div></article></div></div>';
+    renderNoteList();
+  }
+  function allTasks() {
+    return Object.entries(state.notes).flatMap(function(entry){return (entry[1].tasks||[]).map(function(t){return Object.assign({},t,{noteId:entry[0],noteTitle:entry[1].title});});});
+  }
+  function renderTasks(target) {
+    target=target||(state.appMode==='knowledge'?document.getElementById('knowledge-content'):work);
+    const all=allTasks(), filtered=all.filter(function(t){return state.taskFilter==='done'?t.done:!t.done;});
+    const items=filtered.length?filtered.map(function(t){return '<div class="task-item '+(t.done?'done':'')+'"><input type="checkbox" aria-label="'+esc(t.text)+'" data-task="'+esc(t.id)+'" data-task-note="'+esc(t.noteId)+'" '+(t.done?'checked':'')+'><div class="task-item-content"><div class="task-label">'+esc(t.text)+'</div><button type="button" class="task-source" data-note="'+esc(t.noteId)+'">来自 '+esc(t.noteTitle)+' ↗</button></div></div>';}).join(''):'<div class="task-empty">这里暂时没有事项。</div>';
+    target.innerHTML='<section class="tasks-view"><div class="doc-kicker"><span class="dot"></span> 我的知识库</div><h1>待办</h1><p>从笔记中收集的事项，勾选后会同步更新原笔记。</p><form class="task-create" id="task-form"><input id="task-input" maxlength="100" required placeholder="记下一件要做的事…" aria-label="新待办内容"><button type="submit">添加待办</button></form><div class="task-filter"><button type="button" data-filter="open" class="'+(state.taskFilter==='open'?'active':'')+'">未完成 '+all.filter(function(t){return !t.done;}).length+'</button><button type="button" data-filter="done" class="'+(state.taskFilter==='done'?'active':'')+'">已完成 '+all.filter(function(t){return t.done;}).length+'</button></div>'+items+'</section>';
+  }
+
+  function knowledgeNote() { return state.notes[state.knowledgeNoteId]||state.notes.workspace; }
+  function showProject() {
+    state.appMode='project';split.hidden=false;document.getElementById('knowledge-view').hidden=true;
+    document.body.classList.remove('mobile-sidebar-open');renderThreads();persist();
+  }
+  function showKnowledge(view,id) {
+    if (view && ['note','tasks','canvas'].includes(view)) state.knowledgeView=view;
+    if (id && state.notes[id]) state.knowledgeNoteId=id;
+    state.appMode='knowledge';split.hidden=true;document.getElementById('knowledge-view').hidden=false;
+    document.getElementById('knowledge-view').classList.remove('show-tree');
+    document.body.classList.remove('mobile-sidebar-open');lastSelection=null;connecting=false;connectionStart=null;
+    renderThreads();renderKnowledge();persist();
+  }
+  function renderKnowledgeTree() {
+    const active=function(v){return state.knowledgeView===v?' active':'';};
+    const notes=Object.entries(state.notes).map(function(entry){return '<button type="button" class="k-nav-btn'+(state.knowledgeView==='note'&&state.knowledgeNoteId===entry[0]?' active':'')+'" data-knowledge-note="'+esc(entry[0])+'">'+icon('note')+'<span>'+esc(entry[1].title)+'</span></button>';}).join('');
+    document.getElementById('knowledge-tree').innerHTML='<button class="k-nav-btn" type="button" data-action="open-search">'+icon('search')+'<span>搜索知识库</span></button><div class="k-nav-caption">我的内容</div>'+notes+'<div class="k-nav-caption">工作视图</div><button class="k-nav-btn'+active('tasks')+'" type="button" data-knowledge-view="tasks">'+icon('check')+'<span>待办</span></button><button class="k-nav-btn'+active('canvas')+'" type="button" data-knowledge-view="canvas">'+icon('canvas')+'<span>画布 · 工作台结构</span></button>';
+  }
+  function renderKnowledgeMain() {
+    const container=document.getElementById('knowledge-content');
+    container.classList.toggle('canvas-active',state.knowledgeView==='canvas');
+    if(state.knowledgeView==='canvas'){renderCanvas(container);return;}
+    if(state.knowledgeView==='tasks'){renderTasks(container);return;}
+    const n=knowledgeNote(), id=state.knowledgeNoteId;
+    const tasks=(n.tasks||[]).map(function(t){return '<label class="check-row '+(t.done?'done':'')+'"><input type="checkbox" data-task="'+esc(t.id)+'" data-task-note="'+esc(id)+'" '+(t.done?'checked':'')+'><span>'+esc(t.text)+'</span></label>';}).join('');
+    container.innerHTML='<article class="k-document"><div class="k-doc-label">'+icon('note')+' 笔记 <span>·</span> 我的知识库</div>'+
+      '<h1 class="doc-title" contenteditable="true" spellcheck="false" data-field="title" aria-label="笔记标题">'+esc(n.title)+'</h1>'+
+      '<p class="doc-summary" contenteditable="true" spellcheck="false" data-field="subtitle" aria-label="笔记摘要">'+esc(n.subtitle)+'</p><div class="doc-divider"></div>'+
+      '<div class="doc-body"><h2>想法</h2><p contenteditable="true" spellcheck="false" data-field="overview" aria-label="想法正文">'+esc(n.overview)+'</p>'+
+      '<h2>协作原则</h2><p contenteditable="true" spellcheck="false" data-field="principle" aria-label="协作原则">'+esc(n.principle)+'</p>'+
+      (tasks?'<h2>接下来</h2><div class="doc-list">'+tasks+'</div>':'')+
+      '<div class="doc-tip">'+icon('spark','small-icon')+'<span>点击文字即可编辑。</span><button type="button" class="tip-quote" data-action="knowledge-quote">引用选区到 AI</button><button type="button" class="tip-quote" data-action="knowledge-improve">请 AI 提建议</button></div></div>'+
+      '<div class="k-doc-footer"><span class="saved-dot"></span><span id="knowledge-save-status">示例内容已保存在本机</span></div></article>';
+  }
+  function renderKnowledgeContext() {
+    const current=state.knowledgeView==='note'?knowledgeNote().title:state.knowledgeView==='canvas'?'工作台结构':'待办';
+    document.getElementById('knowledge-breadcrumb').textContent=current;
+    document.getElementById('knowledge-context').innerHTML=icon('link')+' 当前：'+esc(current)+(state.knowledgeQuote?' · 已引用选区 <button type="button" data-action="clear-knowledge-quote">移除</button>':'');
+  }
+  function renderKnowledgeMessages(scroll) {
+    const el=document.getElementById('knowledge-messages');
+    const intro='<div class="k-ai-date">当前内容的辅助对话 · 示例</div><div class="k-ai-message"><div class="k-ai-who">'+icon('spark')+' AI 助手</div><p>我可以帮你梳理当前内容，或对选中的文字提出建议。你可以继续编辑，随时在这里讨论。</p><div class="k-ai-quick"><button type="button" data-action="knowledge-summary">提炼要点</button><button type="button" data-action="knowledge-improve">提出修改建议</button></div></div>';
+    el.innerHTML=intro+state.knowledgeMessages.map(function(m,i){
+      if(m.kind==='user')return '<div class="k-ai-message user">'+(m.quote?'<div class="k-quote">引用 · '+esc(m.quote.title)+'<br>'+esc(m.quote.text)+'</div>':'')+esc(m.text)+'</div>';
+      if(m.kind==='proposal'||m.kind==='canvas-proposal'){
+        const isCanvas=m.kind==='canvas-proposal';
+        const label=m.status==='applied'?'已应用':m.status==='rejected'?'已放弃':'查看建议';
+        return '<div class="k-ai-message"><div class="k-ai-who">'+icon('spark')+' AI 助手</div><p>'+(isCanvas?'我建议补充一个节点，说明内容之间的引用关系。':'我建议补充一条关于修改确认的协作原则。')+'</p><button class="k-proposal" type="button" data-knowledge-review="'+i+'" '+(m.status!=='pending'?'disabled':'')+'>'+icon(isCanvas?'canvas':'note')+'<span><strong>'+(isCanvas?'补充画布关系':'完善协作原则')+'</strong><small>'+(isCanvas?'工作台结构':esc((state.notes[m.noteId]||state.notes.workspace).title))+' · 修改建议</small></span><span>'+label+'</span></button></div>';
+      }
+      return '<div class="k-ai-message"><div class="k-ai-who">'+icon('spark')+' AI 助手</div><p>这份内容围绕记录、整理与行动展开。你可以继续补充，也可以选中文字让我提出修改建议。</p><p style="color:#a7aeb8;font-size:10px">这是预设回复，用来演示交互。</p></div>';
+    }).join('');
+    if(scroll)requestAnimationFrame(function(){el.scrollTop=el.scrollHeight;});
+  }
+  function renderKnowledge() { renderKnowledgeTree();renderKnowledgeMain();renderKnowledgeContext();renderKnowledgeMessages(false); }
+  function submitKnowledge(text, forceKind) {
+    const value=String(text||'').trim();if(!value)return;
+    state.knowledgeMessages.push({kind:'user',text:value,quote:state.knowledgeQuote?Object.assign({},state.knowledgeQuote):null});state.knowledgeQuote=null;
+    const wantsChange=forceKind==='proposal'||/修改|建议|完善|优化|改一改|整理画布/.test(value);
+    if(wantsChange&&state.knowledgeView==='canvas')state.knowledgeMessages.push({kind:'canvas-proposal',status:'pending'});
+    else if(wantsChange&&state.knowledgeView==='note')state.knowledgeMessages.push({kind:'proposal',status:'pending',noteId:state.knowledgeNoteId});
+    else state.knowledgeMessages.push({kind:'summary'});
+    document.getElementById('knowledge-input').value='';document.getElementById('knowledge-view').classList.add('show-ai');
+    persist();renderKnowledgeContext();renderKnowledgeMessages(true);
+  }
+  function showKnowledgeReview(index) {
+    const proposal=state.knowledgeMessages[index];if(!proposal||!['proposal','canvas-proposal'].includes(proposal.kind)||proposal.status!=='pending')return;
+    knowledgeActiveProposal=index;activeProposal=null;
+    if(proposal.kind==='canvas-proposal'){
+      document.getElementById('review-title').textContent='补充画布关系';document.getElementById('review-desc').textContent='工作台结构 · 节点与连线';
+      document.getElementById('review-before').textContent='现有“知识与待办”节点。';document.getElementById('review-after').textContent='新增“引用与来源”节点，并从“知识与待办”连接过去。';
+    }else{
+      const n=state.notes[proposal.noteId]||state.notes.workspace;
+      document.getElementById('review-title').textContent='让协作原则更清晰';document.getElementById('review-desc').textContent=n.title+' · 协作原则';
+      document.getElementById('review-before').textContent=n.principle;document.getElementById('review-after').textContent=proposalAfter(n.principle);
+    }
+    reviewDialog.showModal();
+  }
+  function findNode(id) { return state.nodes.find(function(n){return n.id===id;}); }
+  function pathFor(a,b) {
+    if (!a||!b) return '';
+    const y1=a.y+4, y2=b.y-5, mid=(y1+y2)/2;
+    return 'M '+a.x+' '+y1+' C '+a.x+' '+mid+', '+b.x+' '+mid+', '+b.x+' '+y2;
+  }
+  function updateEdges() {
+    const lines=document.getElementById('canvas-lines'); if (!lines) return;
+    lines.querySelectorAll('[data-edge]').forEach(function(p){ const parts=p.dataset.edge.split('|'); p.setAttribute('d',pathFor(findNode(parts[0]),findNode(parts[1]))); });
+  }
+  function renderCanvas(target) {
+    target=target||(state.appMode==='knowledge'?document.getElementById('knowledge-content'):work);
+    target.innerHTML='<div class="canvas-container" aria-label="工作台结构画布"><div class="canvas-toolbar"><button type="button" class="canvas-tool" data-action="add-node">'+icon('plus')+'添加节点</button><button type="button" class="canvas-tool '+(connecting?'is-connecting':'')+'" data-action="connect-node">'+icon('link')+(connecting?(connectionStart?'选择目标':'选择起点'):'连线')+'</button><button type="button" class="canvas-tool" data-action="canvas-improve">'+icon('spark')+'请 AI 整理</button></div>'+
+      '<div class="canvas-world" id="canvas-world" style="transform:scale('+state.zoom+')"><svg class="canvas-lines" id="canvas-lines" viewBox="0 0 100 100" preserveAspectRatio="none" aria-hidden="true"><defs><marker id="canvas-arrow" viewBox="0 0 10 10" refX="7" refY="5" markerWidth="4" markerHeight="4" orient="auto-start-reverse"><path d="M 0 0 L 10 5 L 0 10 z" fill="#c8b9de"></path></marker></defs>'+
+      state.edges.map(function(e){return '<path data-edge="'+esc(e[0])+'|'+esc(e[1])+'" d="'+esc(pathFor(findNode(e[0]),findNode(e[1])))+'" fill="none" stroke="#b9a7d3" stroke-width="1.35" marker-end="url(#canvas-arrow)" vector-effect="non-scaling-stroke"></path>';}).join('')+'</svg>'+
+      state.nodes.map(function(n){return '<div class="canvas-node '+(n.type==='root'?'root ':'')+(connectionStart===n.id?'connect-source':'')+'" data-node="'+esc(n.id)+'" style="left:'+n.x+'%;top:'+n.y+'%"><div class="node-kicker">'+icon(n.type==='root'?'spark':n.type==='folder'?'folder':n.type==='canvas'?'canvas':n.type==='chat'?'chat':'note')+' '+(n.type==='root'?'WORKSPACE':'卡片')+'</div><div class="node-title" contenteditable="true" spellcheck="false" data-node-title="'+esc(n.id)+'" aria-label="编辑画布节点">'+esc(n.title)+'</div><div class="node-sub">'+esc(n.sub)+'</div></div>';}).join('')+'</div>'+
+      '<div class="canvas-hint">拖动卡片整理思路</div><div class="canvas-zoom"><button type="button" data-action="zoom-out" aria-label="缩小">'+icon('minus')+'</button><span>'+Math.round(state.zoom*100)+'%</span><button type="button" data-action="zoom-in" aria-label="放大">'+icon('plus')+'</button></div></div>';
+    attachCanvasDrag(target);
+  }
+  function attachCanvasDrag(target) {
+    target.querySelectorAll('.canvas-node').forEach(function(el){
+      el.addEventListener('pointerdown',function(e){
+        if(connecting || e.button!==0 || e.target.closest('[contenteditable="true"]')) return;
+        const n=findNode(el.dataset.node), world=document.getElementById('canvas-world'); if(!n||!world)return;
+        const rect=world.getBoundingClientRect(), startX=e.clientX, startY=e.clientY, x=n.x, y=n.y;
+        el.setPointerCapture(e.pointerId);
+        function move(ev){n.x=Math.max(12,Math.min(88,x+(ev.clientX-startX)/rect.width*100));n.y=Math.max(8,Math.min(92,y+(ev.clientY-startY)/rect.height*100));el.style.left=n.x+'%';el.style.top=n.y+'%';updateEdges();}
+        function up(){el.removeEventListener('pointermove',move);el.removeEventListener('pointerup',up);el.removeEventListener('pointercancel',up);persist();}
+        el.addEventListener('pointermove',move); el.addEventListener('pointerup',up); el.addEventListener('pointercancel',up);
+      });
+    });
+  }
+  function projectFiles(project) {
+    return [
+      {path:'README.md',content:'# '+project.name+'\n\n这是用于展示项目会话的示例文件。\n真实项目文件仍由 Harness 的工作区提供。'},
+      {path:'src/app.ts',content:'// 示例内容，用来展示项目文件入口\nexport function main() {\n  return "Hello, workspace";\n}'},
+      {path:'docs/notes.md',content:'# 项目记录\n\n在项目对话中查看文件，或按需打开个人知识库。'}
+    ];
+  }
+  function renderProject() {
+    const project=currentProject()||{name:'默认工作区'};
+    const files=projectFiles(project);
+    let selected=files.find(function(f){return f.path===state.projectFile;})||files[0];
+    state.projectFile=selected.path;
+    work.innerHTML='<section class="project-view"><div class="project-label">项目工作区 · 示例</div><h1>'+esc(project.name)+'</h1><p class="project-description">当前对话属于这个项目。查看项目文件，也可以随时打开个人知识库。</p><div class="project-file-list">'+files.map(function(f){return '<button type="button" class="project-file '+(f.path===selected.path?'active':'')+'" data-project-file="'+esc(f.path)+'">'+icon('note')+esc(f.path)+'</button>';}).join('')+'</div><div class="project-preview"><div class="project-preview-head">'+icon('note')+esc(selected.path)+'<span style="margin-left:auto;color:#bdb6c0">示例预览</span></div><pre>'+esc(selected.content)+'</pre></div><p class="project-notice">这是示例项目，不读取或修改你的真实项目文件。</p></section>';
+  }
+  function renderGuide() {
+    const entries=[
+      {action:'open-project-files',icon:'folder',title:'工作区文件',description:'浏览会话工作区的文件'},
+      {action:'open-terminal',icon:'terminal',title:'新建终端',description:'在会话工作区运行命令'},
+      {action:'host-only',icon:'grid',title:'更多工具',description:''}
+    ];
+    work.innerHTML='<div class="guide"><div class="guide-mark">'+icon('compass')+'</div><div class="guide-list">'+entries.map(function(e){return '<button type="button" class="guide-item" data-action="'+esc(e.action)+'" data-host-name="'+esc(e.title)+'"><span class="guide-icon">'+icon(e.icon)+'</span><span><strong>'+esc(e.title)+'</strong>'+(e.description?'<small>'+esc(e.description)+'</small>':'')+'</span></button>';}).join('')+'</div></div>';
+  }
+  function renderTerminal() {
+    work.innerHTML='<div class="terminal-view"><small>终端界面示例 · 本原型不执行命令</small><br>$ <span style="opacity:.7">_</span></div>';
+  }
+  function renderWorkspace() {
+    if (state.section==='guide') {work.style.overflow='auto';renderGuide();}
+    else if (state.section==='terminal') {work.style.overflow='auto';renderTerminal();}
+    else if (state.section==='project') { work.style.overflow='auto'; renderProject(); }
+    else if (state.section==='canvas') { work.style.overflow='hidden'; renderCanvas(); }
+    else if (state.section==='tasks') { work.style.overflow='auto'; renderTasks(); }
+    else { work.style.overflow='auto'; renderDocument(); }
+    renderNoteList(); updateNav();
+  }
+  function messageHtml(m,index) {
+    if(m.kind==='user')return '<div class="message user"><span class="message-avatar">我</span><div class="message-body"><div class="message-name">你 <small>刚刚</small></div><div class="user-bubble">'+(m.quote?'<div class="user-quote">引用 · '+esc(m.quote.title)+'<br>'+esc(m.quote.text)+'</div>':'')+esc(m.text)+'</div></div></div>';
+    let body='';
+    if(m.kind==='intro') body='<div class="assistant-text"><p>我把相关的想法整理了一下。核心是让 <strong>AI 对话和内容工作连在一起</strong>，不用在不同应用之间来回切换。</p><ul class="answer-list"><li><span class="dot"></span><span><strong>对话</strong>：一起探索问题、整理想法。</span></li><li><span class="dot"></span><span><strong>知识库</strong>：把成果变成可以继续编辑的笔记。</span></li><li><span class="dot"></span><span><strong>画布</strong>：把想法之间的关系看清楚。</span></li></ul><p>我准备了一篇笔记和一张结构图，你可以直接打开继续调整。</p></div><div class="source-title">'+icon('book')+'参考了 2 篇示例笔记</div><div class="sources"><button class="source-chip" type="button" data-note="workspace">'+icon('note')+'个人 AI 工作台</button><button class="source-chip" type="button" data-note="ideas">'+icon('note')+'灵感收集</button></div><button type="button" class="result-card" data-action="open-canvas"><span class="result-icon">'+icon('canvas')+'</span><span class="result-content"><strong>工作台结构</strong><small>一张可以继续编辑的画布</small></span><span class="result-action">打开 ↗</span></button>';
+    if(m.kind==='proposal') {
+      const label=m.status==='applied'?'已应用修改':m.status==='rejected'?'已放弃建议':'查看建议';
+      body='<div class="assistant-text"><p>我还建议补充一条协作原则：让 AI 对已有内容的修改先经过你的确认。</p></div><button type="button" class="result-card" data-review="'+index+'" '+(m.status!=='pending'?'disabled':'')+'><span class="result-icon">'+icon('spark')+'</span><span class="result-content"><strong>完善「协作原则」</strong><small>修改建议 · '+esc((state.notes[m.noteId]||state.notes.workspace).title)+'</small></span><span class="result-action">'+label+' '+(m.status==='pending'?'↗':'')+'</span></button>';
+    }
+    if(m.kind==='canvas-proposal') {
+      const label=m.status==='applied'?'已应用修改':m.status==='rejected'?'已放弃建议':'查看建议';
+      body='<div class="assistant-text"><p>我建议在画布中增加“引用与来源”，把知识库和对话之间的关系补充清楚。</p></div><button type="button" class="result-card" data-review="'+index+'" '+(m.status!=='pending'?'disabled':'')+'><span class="result-icon">'+icon('canvas')+'</span><span class="result-content"><strong>补充画布关系</strong><small>修改建议 · 工作台结构</small></span><span class="result-action">'+label+' '+(m.status==='pending'?'↗':'')+'</span></button>';
+    }
+    if(m.kind==='canvas')body='<div class="assistant-text"><p>我根据示例笔记整理了一张结构图。你可以在画布中拖动卡片，或者直接修改卡片标题。</p></div><button type="button" class="result-card" data-action="open-canvas"><span class="result-icon">'+icon('canvas')+'</span><span class="result-content"><strong>工作台结构</strong><small>示例画布 · 可继续编辑</small></span><span class="result-action">打开 ↗</span></button>';
+    if(m.kind==='project-intro')body='<div class="assistant-text"><p>我会先查看项目目录，梳理服务端的主要模块、接口入口和它们之间的关系。</p><p>你也可以从右侧打开工作区文件，边看代码边继续讨论。</p></div>';
+    if(m.kind==='project-generic')body='<div class="assistant-text"><p>这是预设的示例回复。实际使用时，这里继续使用 Harness 原有的项目会话和工具。</p></div>';
+    if(m.kind==='generic')body='<div class="assistant-text"><p>这个原型暂时使用预设回复。你可以试试“完善当前笔记”或“画一张结构图”，看看内容与对话怎样配合。</p></div>';
+    return '<div class="message"><span class="message-avatar">'+icon('spark')+'</span><div class="message-body"><div class="message-name">DogO <small>示例回复</small></div>'+body+'</div></div>';
+  }
+  function renderMessages(scroll) {
+    messages.innerHTML='<div class="date-divider">今天 · 示例对话</div>'+state.messages.map(messageHtml).join('');
+    if(scroll)requestAnimationFrame(function(){const c=document.getElementById('chat-scroll');c.scrollTop=c.scrollHeight;});
+  }
+  function proposalAfter(original) {
+    const sentence='AI 修改已有内容前，先展示建议，由我确认后再应用。';
+    return original.includes(sentence)?original:original+' '+sentence;
+  }
+  function showReview(index) {
+    const proposal=state.messages[index]; if(!proposal || !['proposal','canvas-proposal'].includes(proposal.kind) || proposal.status!=='pending')return;
+    activeProposal=index;
+    if(proposal.kind==='canvas-proposal') {
+      document.getElementById('review-title').textContent='补充画布关系';
+      document.getElementById('review-desc').textContent='工作台结构 · 节点与连线';
+      document.getElementById('review-before').textContent='现有“知识与待办”节点。';
+      document.getElementById('review-after').textContent='新增“引用与来源”节点，并从“知识与待办”连接过去。';
+    } else {
+      const n=state.notes[proposal.noteId]||state.notes.workspace;
+      document.getElementById('review-title').textContent='让协作原则更清晰';
+      document.getElementById('review-desc').textContent=n.title+' · 协作原则';
+      document.getElementById('review-before').textContent=n.principle;
+      document.getElementById('review-after').textContent=proposalAfter(n.principle);
+    }
+    reviewDialog.showModal();
+  }
+  function completeReview(apply) {
+    if(knowledgeActiveProposal!==null){
+      const p=state.knowledgeMessages[knowledgeActiveProposal];
+      if(!p||p.status!=='pending')return;
+      const isCanvas=p.kind==='canvas-proposal';
+      if(apply){
+        if(isCanvas){if(!findNode('source')){state.nodes.push({id:'source',title:'引用与来源',sub:'连接对话和笔记',x:22,y:79,type:'note'});state.edges.push(['notes','source']);}state.knowledgeView='canvas';}
+        else {const n=state.notes[p.noteId]||state.notes.workspace;n.principle=proposalAfter(n.principle);state.knowledgeNoteId=p.noteId;state.knowledgeView='note';}
+        p.status='applied';
+      }else p.status='rejected';
+      knowledgeActiveProposal=null;reviewDialog.close();persist();renderKnowledge();toast(apply?'已应用示例建议':'已放弃修改建议');return;
+    }
+    if(activeProposal===null)return;
+    const p=state.messages[activeProposal]; if(!p||p.status!=='pending')return;
+    if(apply){
+      if(p.kind==='canvas-proposal') {
+        if(!findNode('source')){state.nodes.push({id:'source',title:'引用与来源',sub:'连接对话和笔记',x:22,y:79,type:'note'});state.edges.push(['notes','source']);}
+        activateSection('canvas');
+      } else {const n=state.notes[p.noteId]||state.notes.workspace;n.principle=proposalAfter(n.principle);state.noteId=p.noteId;activateSection('note');}
+      p.status='applied';
+    } else p.status='rejected';
+    const isCanvas=p.kind==='canvas-proposal';activeProposal=null;reviewDialog.close();persist();renderWorkspace();renderTabs();renderMessages(false);
+    toast(apply?(isCanvas?'建议已应用到示例画布':'建议已应用到示例笔记'):'已放弃修改建议');
+  }
+  function submitMessage(text) {
+    const value=String(text||'').trim();if(!value)return;
+    state.messages.push({kind:'user',text:value,quote:state.contextEnabled&&state.quote?Object.assign({},state.quote):null}); state.quote=null;
+    if(state.chatTitle==='新的对话'||state.chatTitle==='新会话'){state.chatTitle=Array.from(value).slice(0,18).join('');renderThreads();}
+    state.messages.push({kind:'project-generic'});
+    document.getElementById('chat-input').value='';persist();renderThreads();renderMessages(true);updateNav();
+  }
+  function renderSearch() {
+    const q=document.getElementById('search-input').value.trim().toLowerCase();
+    const matchedThreads=state.threads.filter(function(t){
+      const project=state.projects.find(function(p){return p.id===t.projectId;});
+      const text=[t.title,project?project.name:'未分组'].concat((t.messages||[]).filter(function(m){return m.kind==='user';}).map(function(m){return m.text||'';})).join(' ').toLowerCase();
+      return !q||text.includes(q);
+    }).map(function(t){
+      const project=state.projects.find(function(p){return p.id===t.projectId;});
+      return '<button class="search-result" type="button" data-search-thread="'+esc(t.id)+'">'+icon('chat')+'<span><strong>'+esc(t.title)+'</strong><small>'+(project?esc(project.name):'未分组')+' · 示例对话</small></span></button>';
+    });
+    const matchedNotes=Object.entries(state.notes).filter(function(entry){const n=entry[1];return !q || [n.title,n.subtitle,n.overview,n.principle].join(' ').toLowerCase().includes(q);}).map(function(entry){return '<button class="search-result" type="button" data-search-note="'+esc(entry[0])+'">'+icon('note')+'<span><strong>'+esc(entry[1].title)+'</strong><small>'+esc(entry[1].subtitle)+'</small></span></button>';});
+    if(!q || '工作台结构 canvas 画布'.includes(q))matchedNotes.push('<button class="search-result" type="button" data-search-canvas="1">'+icon('canvas')+'<span><strong>工作台结构</strong><small>画布 · 我的知识库</small></span></button>');
+    const html=(searchScope!=='notes'&&matchedThreads.length?'<div class="search-section">工作区与会话</div>'+matchedThreads.join(''):'')+(searchScope==='notes'&&matchedNotes.length?'<div class="search-section">知识库</div>'+matchedNotes.join(''):'');
+    document.getElementById('search-results').innerHTML=html||'<div class="search-empty">没有找到匹配的示例内容。</div>';
+  }
+  document.addEventListener('click',function(e){
+    const knowledgeNoteButton=e.target.closest('[data-knowledge-note]');if(knowledgeNoteButton){showKnowledge('note',knowledgeNoteButton.dataset.knowledgeNote);return;}
+    const knowledgeViewButton=e.target.closest('[data-knowledge-view]');if(knowledgeViewButton){showKnowledge(knowledgeViewButton.dataset.knowledgeView);return;}
+    const knowledgeReview=e.target.closest('[data-knowledge-review]');if(knowledgeReview){showKnowledgeReview(Number(knowledgeReview.dataset.knowledgeReview));return;}
+    const closeTab=e.target.closest('[data-close-right-tab]');
+    if(closeTab){
+      const name=closeTab.dataset.closeRightTab,index=state.rightTabs.indexOf(name);
+      if(index>=0){state.rightTabs.splice(index,1);if(!state.rightTabs.length){state.rightTabs=['guide'];state.section='guide';state.panelOpen=false;}else if(state.section===name)state.section=state.rightTabs[Math.max(0,index-1)]||state.rightTabs[0];renderWorkspace();renderTabs();persist();}return;
+    }
+    const openTab=e.target.closest('[data-open-right-tab]');
+    if(openTab){state.section=openTab.dataset.openRightTab;renderWorkspace();renderTabs();persist();return;}
+    const pickerThread=e.target.closest('[data-picker-thread]');if(pickerThread){projectPicker.close();openThread(pickerThread.dataset.pickerThread);return;}
+    const pickerNew=e.target.closest('[data-picker-new]');if(pickerNew){projectPicker.close();createThread(pickerNew.dataset.pickerNew);return;}
+    const toggleProject=e.target.closest('[data-toggle-project]'); if(toggleProject){const p=state.projects.find(function(x){return x.id===toggleProject.dataset.toggleProject;});if(p){p.open=p.open===false;persist();renderThreads();}return;}
+    const newProjectThread=e.target.closest('[data-new-project-thread]');if(newProjectThread){createThread(newProjectThread.dataset.newProjectThread);return;}
+    const projectFile=e.target.closest('[data-project-file]');if(projectFile){if(!currentProject())return;state.projectFile=projectFile.dataset.projectFile;activateSection('project');renderWorkspace();renderTabs();persist();return;}
+    const threadButton=e.target.closest('[data-thread]'); if(threadButton){openThread(threadButton.dataset.thread);return;}
+    const canvasNode=e.target.closest('.canvas-node');if(canvasNode&&connecting){e.preventDefault();const id=canvasNode.dataset.node;if(!connectionStart){connectionStart=id;renderCanvas();toast('请选择连线的目标节点');}else if(connectionStart===id){toast('请选择另一个节点');}else{if(!state.edges.some(function(edge){return edge[0]===connectionStart&&edge[1]===id;}))state.edges.push([connectionStart,id]);connecting=false;connectionStart=null;persist();renderCanvas();toast('已连接两个节点');}return;}
+    const noteButton=e.target.closest('[data-note]'); if(noteButton){openNote(noteButton.dataset.note,true);return;}
+    const rev=e.target.closest('[data-review]'); if(rev){showReview(Number(rev.dataset.review));return;}
+    const filter=e.target.closest('[data-filter]'); if(filter){state.taskFilter=filter.dataset.filter;persist();renderTasks();return;}
+    const searchThread=e.target.closest('[data-search-thread]');if(searchThread){searchDialog.close();openThread(searchThread.dataset.searchThread);return;}
+    const searchNote=e.target.closest('[data-search-note]');if(searchNote){searchDialog.close();openNote(searchNote.dataset.searchNote,true);return;}
+    const searchCanvas=e.target.closest('[data-search-canvas]');if(searchCanvas){searchDialog.close();openSection('canvas',true);return;}
+    const button=e.target.closest('[data-action]');if(!button)return;
+    switch(button.dataset.action){
+      case 'open-knowledge':showKnowledge(state.knowledgeView||'note');break;
+      case 'return-project':showProject();break;
+      case 'toggle-knowledge-tree':document.getElementById('knowledge-view').classList.toggle('show-tree');break;
+      case 'toggle-knowledge-ai':document.getElementById('knowledge-view').classList.toggle('show-ai');break;
+      case 'knowledge-summary':submitKnowledge('请帮我提炼当前内容的要点。','summary');break;
+      case 'knowledge-improve':submitKnowledge(state.knowledgeView==='canvas'?'请帮我整理当前画布。':'请帮我完善当前内容。','proposal');break;
+      case 'knowledge-quote':
+        if(!lastSelection||lastSelection.noteId!==state.knowledgeNoteId){toast('请先选中笔记中的文字');break;}
+        state.knowledgeQuote=Object.assign({},lastSelection);persist();renderKnowledgeContext();document.getElementById('knowledge-view').classList.add('show-ai');document.getElementById('knowledge-input').focus();toast('选中文字已加入 AI 对话');break;
+      case 'clear-knowledge-quote':state.knowledgeQuote=null;persist();renderKnowledgeContext();break;
+      case 'open-right':state.panelOpen=true;state.panelFull=false;renderWorkspace();renderTabs();updateNav();persist();break;
+      case 'close-right':state.panelOpen=false;state.panelFull=false;focus('chat');break;
+      case 'show-guide':openSection('guide',false);break;
+      case 'toggle-fullscreen':state.panelOpen=true;state.panelFull=!state.panelFull;updateNav();persist();break;
+      case 'open-project-files':openSection('project',true);break;
+      case 'open-terminal':openSection('terminal',true);break;
+      case 'host-only':toast('「'+(button.dataset.hostName||'此功能')+'」保留原有位置；原型中仅作展示');break;
+      case 'toggle-sidebar':if(window.innerWidth<=760)document.body.classList.toggle('mobile-sidebar-open');else document.querySelector('.app').classList.toggle('sidebar-collapsed');break;
+      case 'focus-chat':focus('chat');break;
+      case 'focus-work':focus('work');break;
+      case 'toggle-focus':focus(state.focus==='chat'?'work':'chat');break;
+      case 'open-chat':focus('chat');break;
+      case 'open-notes':openSection('note',true);break;
+      case 'open-canvas':openSection('canvas',true);break;
+      case 'open-tasks':openSection('tasks',true);break;
+      case 'show-project':if(currentProject())openSection('project',false);break;
+      case 'show-note':openSection('note',false);break;
+      case 'show-canvas':openSection('canvas',false);break;
+      case 'show-tasks':openSection('tasks',false);break;
+      case 'open-session-search':searchScope='sessions';document.getElementById('search-input').placeholder='搜索工作区和会话…';document.getElementById('search-input').value='';renderSearch();searchDialog.showModal();setTimeout(function(){document.getElementById('search-input').focus();},20);break;
+      case 'open-search':searchScope='notes';document.getElementById('search-input').placeholder='搜索知识库…';document.getElementById('search-input').value='';renderSearch();searchDialog.showModal();setTimeout(function(){document.getElementById('search-input').focus();},20);break;
+      case 'close-search':searchDialog.close();break;
+      case 'open-project-picker':renderProjectPicker();projectPicker.showModal();break;
+      case 'close-project-picker':projectPicker.close();break;
+      case 'new-project':if(projectPicker.open)projectPicker.close();document.getElementById('project-name').value='';projectDialog.showModal();setTimeout(function(){document.getElementById('project-name').focus();},20);break;
+      case 'close-project-dialog':projectDialog.close();break;
+      case 'new-note':document.getElementById('new-name').value='';newDialog.showModal();setTimeout(function(){document.getElementById('new-name').focus();},20);break;
+      case 'close-new':newDialog.close();break;
+      case 'close-review':activeProposal=null;knowledgeActiveProposal=null;reviewDialog.close();break;
+      case 'reject-review':completeReview(false);break;
+      case 'apply-review':completeReview(true);break;
+      case 'quick-improve':submitMessage('请帮我完善当前笔记。');break;
+      case 'quick-canvas':submitMessage('把这些想法画成一张结构图。');break;
+      case 'canvas-improve':if(state.appMode==='knowledge'){submitKnowledge('请帮我整理当前画布。','proposal');break;}state.messages.push({kind:'user',text:'请帮我整理当前画布。'});state.messages.push({kind:'canvas-proposal',status:'pending'});persist();renderMessages(true);if(window.innerWidth<=760)focus('chat');break;
+      case 'connect-node':connecting=!connecting;connectionStart=null;renderCanvas();if(connecting)toast('请选择连线的起点和目标');break;
+      case 'quote-selection':if(!lastSelection||lastSelection.noteId!==state.noteId){toast('请先选中笔记中的文字');break;}state.quote=Object.assign({},lastSelection);state.contextEnabled=true;persist();updateNav();if(window.innerWidth<=760){state.panelOpen=false;focus('chat');}document.getElementById('chat-input').focus();toast('选中文字已加入对话');break;
+      case 'zoom-in':state.zoom=Math.min(1.3,Math.round((state.zoom+.1)*10)/10);persist();renderCanvas();break;
+      case 'zoom-out':state.zoom=Math.max(.7,Math.round((state.zoom-.1)*10)/10);persist();renderCanvas();break;
+      case 'add-node':state.nodes.push({id:'node-'+Date.now(),title:'新想法',sub:'点击标题编辑',x:75,y:80,type:'note'});persist();renderCanvas();toast('已添加节点，可以直接编辑标题');break;
+      case 'attach-current':if(state.section==='project'&&currentProject()){toast('当前对话属于「'+currentProject().name+'」项目');break;}if(state.quote){state.quote=null;toast('已移除选中的摘录');}else{state.contextEnabled=!state.contextEnabled;toast(state.contextEnabled?'已关联当前内容':'已移除当前内容');}persist();updateNav();break;
+      case 'reset-demo':if(window.confirm('将清除这个原型中保存的演示改动，恢复初始示例。继续吗？')){try{localStorage.removeItem(key);}catch(_){}location.reload();}break;
+      case 'new-chat':createThread(currentProject()?currentProject().id:null);break;
+    }
+    renderNoteList();
+  });
+  document.addEventListener('selectionchange',function(){
+    const sel=window.getSelection();if(!sel||!sel.anchorNode||!sel.toString().trim())return;
+    if(state.appMode==='knowledge'&&state.knowledgeView==='note'&&document.getElementById('knowledge-content').contains(sel.anchorNode))lastSelection={noteId:state.knowledgeNoteId,title:knowledgeNote().title,text:sel.toString().trim()};
+    else if(state.appMode==='project'&&state.section==='note'&&work.contains(sel.anchorNode))lastSelection={noteId:state.noteId,title:note().title,text:sel.toString().trim()};
+  });
+  document.addEventListener('pointerdown',function(e){if(e.target.closest('[data-action="quote-selection"],[data-action="knowledge-quote"]'))e.preventDefault();});
+  document.addEventListener('submit',function(e){if(e.target.id!=='task-form')return;e.preventDefault();const input=document.getElementById('task-input');const value=input.value.trim();if(!value)return;state.notes.workspace.tasks.push({id:'task-'+Date.now(),text:value,done:false});state.taskFilter='open';persist();renderTasks();updateNav();toast('待办已添加到示例笔记');});
+  document.addEventListener('change',function(e){
+    if(!e.target.matches('[data-task]'))return;
+    const n=state.notes[e.target.dataset.taskNote]; const t=n&&(n.tasks||[]).find(function(item){return item.id===e.target.dataset.task;});
+    if(!t)return;t.done=e.target.checked;persist();if(state.appMode==='knowledge'){renderKnowledgeMain();renderKnowledgeContext();}else{renderWorkspace();renderTabs();updateNav();}
+  });
+  document.addEventListener('input',function(e){
+    const el=e.target;
+    if(el.matches('[data-field]')) {
+      const targetNote=state.appMode==='knowledge'?knowledgeNote():note();targetNote[el.dataset.field]=el.textContent;persist();
+      const s=document.getElementById(state.appMode==='knowledge'?'knowledge-save-status':'save-status');if(s)s.textContent='示例内容已保存在本机';
+      if(el.dataset.field==='title'){if(state.appMode==='knowledge'){renderKnowledgeTree();renderKnowledgeContext();}else{renderNoteList();renderTabs();}}
+    }
+    if(el.matches('[data-node-title]')){const n=findNode(el.dataset.nodeTitle);if(n){n.title=el.textContent;persist();}}
+    if(el.id==='search-input')renderSearch();
+  });
+  document.getElementById('knowledge-form').addEventListener('submit',function(e){e.preventDefault();submitKnowledge(document.getElementById('knowledge-input').value);});
+  document.getElementById('knowledge-input').addEventListener('keydown',function(e){if(e.key==='Enter'&&!e.shiftKey&&!e.isComposing){e.preventDefault();document.getElementById('knowledge-form').requestSubmit();}});
+  document.getElementById('chat-form').addEventListener('submit',function(e){e.preventDefault();submitMessage(document.getElementById('chat-input').value);});
+  document.getElementById('chat-input').addEventListener('keydown',function(e){if(e.key==='Enter'&&!e.shiftKey&&!e.isComposing){e.preventDefault();document.getElementById('chat-form').requestSubmit();}});
+  document.getElementById('project-form').addEventListener('submit',function(e){
+    e.preventDefault();const name=document.getElementById('project-name').value.trim();if(!name)return;
+    const id='project-'+Date.now();state.projects.push({id:id,name:name,open:true});projectDialog.close();persist();createThread(id);
+  });
+  document.getElementById('new-form').addEventListener('submit',function(e){
+    e.preventDefault();const title=document.getElementById('new-name').value.trim();if(!title)return;
+    const id='note-'+Date.now();state.notes[id]={title:title,subtitle:'点击这里写下一句简介。',overview:'点击这里开始记录。',principle:'在这里写下你的想法。',tasks:[]};newDialog.close();persist();showKnowledge('note',id);toast('已创建示例笔记');
+  });
+  document.addEventListener('keydown',function(e){if((e.metaKey||e.ctrlKey)&&e.key.toLowerCase()==='k'){e.preventDefault();if(!searchDialog.open){searchScope='sessions';document.getElementById('search-input').placeholder='搜索工作区和会话…';document.getElementById('search-input').value='';renderSearch();searchDialog.showModal();document.getElementById('search-input').focus();}}});
+  const splitter=document.getElementById('splitter');
+  splitter.addEventListener('pointerdown',function(e){
+    if(e.button!==0)return;splitter.setPointerCapture(e.pointerId);
+    function move(ev){const rect=split.getBoundingClientRect();state.workWidth=Math.max(30,Math.min(70,(rect.right-ev.clientX)/rect.width*100));split.style.setProperty('--work-width',state.workWidth+'%');}
+    function up(){splitter.removeEventListener('pointermove',move);splitter.removeEventListener('pointerup',up);splitter.removeEventListener('pointercancel',up);persist();}
+    splitter.addEventListener('pointermove',move);splitter.addEventListener('pointerup',up);splitter.addEventListener('pointercancel',up);
+  });
+  splitter.addEventListener('keydown',function(e){if(e.key==='ArrowLeft'||e.key==='ArrowRight'){e.preventDefault();state.workWidth=Math.max(30,Math.min(70,state.workWidth+(e.key==='ArrowLeft'?2:-2)));updateNav();persist();}});
+  focus(state.focus==='work'?'work':'chat');renderWorkspace();renderTabs();renderMessages(false);renderThreads();updateNav();
+  if(state.appMode==='knowledge')showKnowledge();else showProject();
+})();
+</script>
+</body>
+</html>

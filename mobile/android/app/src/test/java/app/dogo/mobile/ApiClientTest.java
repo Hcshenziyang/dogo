@@ -44,48 +44,48 @@ public class ApiClientTest {
     @Test public void concurrentRequestsRotateOnceAndPersistBeforeReplay() throws Exception {
         AtomicInteger refreshes = new AtomicInteger();
         AtomicInteger writes = new AtomicInteger();
-        JSONObject payload = Json.of("request_id", "same-id", "content", "hello");
+        JSONObject payload = Json.of("device_id", "pc", "method", "snapshot", "args", Json.of("sessionId", "synthetic"));
         server.createContext("/api/auth/refresh", exchange -> {
             refreshes.incrementAndGet();
             respond(exchange, 200, "{\"access_token\":\"fresh\",\"refresh_token\":\"rotated\"}");
         });
-        server.createContext("/api/memos", exchange -> {
+        server.createContext("/api/remote/call", exchange -> {
             assertEquals(payload.toString(), new String(exchange.getRequestBody().readAllBytes(), StandardCharsets.UTF_8));
             if ("Bearer expired".equals(exchange.getRequestHeaders().getFirst("Authorization"))) {
                 respond(exchange, 401, "{\"error\":{\"code\":\"expired\"}}"); return;
             }
             assertEquals("rotated", store.session().optString("refresh_token"));
             writes.incrementAndGet();
-            respond(exchange, 200, "{\"id\":\"memo-1\"}");
+            respond(exchange, 200, "{\"id\":\"response-1\"}");
         });
         ExecutorService executor = Executors.newFixedThreadPool(2);
         try {
-            Future<JSONObject> a = executor.submit(() -> api.request("POST", "/api/memos", payload));
-            Future<JSONObject> b = executor.submit(() -> api.request("POST", "/api/memos", payload));
-            assertEquals("memo-1", a.get(5, TimeUnit.SECONDS).optString("id"));
-            assertEquals("memo-1", b.get(5, TimeUnit.SECONDS).optString("id"));
+            Future<JSONObject> a = executor.submit(() -> api.request("POST", "/api/remote/call", payload));
+            Future<JSONObject> b = executor.submit(() -> api.request("POST", "/api/remote/call", payload));
+            assertEquals("response-1", a.get(5, TimeUnit.SECONDS).optString("id"));
+            assertEquals("response-1", b.get(5, TimeUnit.SECONDS).optString("id"));
             assertEquals(1, refreshes.get()); assertEquals(2, writes.get());
         } finally { executor.shutdownNow(); }
     }
     @Test public void rejectedRefreshClearsCredentials() throws Exception {
-        server.createContext("/api/memos", e -> respond(e, 401, "{}"));
+        server.createContext("/api/remote/call", e -> respond(e, 401, "{}"));
         server.createContext("/api/auth/refresh", e -> respond(e, 401, "{}"));
-        assertThrows(ApiClient.ApiException.class, () -> api.request("GET", "/api/memos", null));
+        assertThrows(ApiClient.ApiException.class, () -> api.request("GET", "/api/remote/call", null));
         assertNull(store.session());
     }
     @Test public void temporaryRefreshFailureKeepsCredentials() throws Exception {
-        server.createContext("/api/memos", e -> respond(e, 401, "{}"));
+        server.createContext("/api/remote/call", e -> respond(e, 401, "{}"));
         server.createContext("/api/auth/refresh", e -> respond(e, 503, "{}"));
-        assertThrows(ApiClient.ApiException.class, () -> api.request("GET", "/api/memos", null));
+        assertThrows(ApiClient.ApiException.class, () -> api.request("GET", "/api/remote/call", null));
         assertEquals("refresh-old", store.session().optString("refresh_token"));
     }
     @Test public void redirectDoesNotForwardAuthorization() throws Exception {
         AtomicInteger followed = new AtomicInteger();
-        server.createContext("/api/memos", e -> {
+        server.createContext("/api/remote/call", e -> {
             e.getResponseHeaders().set("Location", origin + "/leak"); respond(e, 302, "{}");
         });
         server.createContext("/leak", e -> { followed.incrementAndGet(); respond(e, 200, "{}"); });
-        ApiClient.ApiException error = assertThrows(ApiClient.ApiException.class, () -> api.request("GET", "/api/memos", null));
+        ApiClient.ApiException error = assertThrows(ApiClient.ApiException.class, () -> api.request("GET", "/api/remote/call", null));
         assertEquals("redirect_refused", error.code); assertEquals(0, followed.get());
     }
     @Test public void nativeDeviceArrayIsReadable() throws Exception {

@@ -1,70 +1,12 @@
 import { homedir } from 'node:os';
 import { join } from 'node:path';
 import { z } from 'zod';
-import { Api, accountKey, type Credentials } from './api.js';
+import { Api, type Credentials } from './api.js';
 import { Store } from './store.js';
-import { planSchema } from './plan.js';
 import { registerControlRoute } from '../vendor/dsh-remote/control-route.js';
+import { finishLegacyMemoCleanup } from '../devices/cleanup-files.js';
 
 const name = z.string().min(1).max(128);
-const memoFields = {
-  content: z.string().max(256000),
-  project: z.string().max(100).default(''),
-  category: z.string().max(100).default(''),
-  tags: z.array(z.string().min(1).max(100)).max(30).default([]),
-  active: z.boolean().default(true),
-};
-export const mutation = z.discriminatedUnion('method', [
-  z
-    .object({
-      method: z.literal('create'),
-      data: z
-        .object({
-          ...memoFields,
-          request_id: name,
-          plan: planSchema.nullable().optional(),
-          dispatch: z
-            .object({ instruction: z.string().min(1).max(32000), target_device_id: name })
-            .optional(),
-        })
-        .strict(),
-    })
-    .strict(),
-  z
-    .object({
-      method: z.literal('update'),
-      id: name,
-      data: z
-        .object({
-          content: memoFields.content,
-          project: z.string().max(100),
-          category: z.string().max(100),
-          tags: z.array(z.string().min(1).max(100)).max(30),
-          active: z.boolean(),
-          revision: z.number().int().positive(),
-          plan: planSchema.nullable().optional(),
-        })
-        .strict(),
-    })
-    .strict(),
-  z
-    .object({
-      method: z.literal('append'),
-      id: name,
-      data: z
-        .object({ revision: z.number().int().positive(), content: z.string().max(256000) })
-        .strict(),
-    })
-    .strict(),
-  z
-    .object({
-      method: z.literal('delete'),
-      id: name,
-      data: z.object({ revision: z.number().int().positive() }).strict(),
-    })
-    .strict(),
-]);
-type Mutation = z.infer<typeof mutation>;
 export interface ConsumerPort {
   view(): unknown;
   configure(enabled: boolean, cwd: string): Promise<unknown>;
@@ -72,7 +14,7 @@ export interface ConsumerPort {
 export class Runtime {
   readonly api: Api;
   consumer?: ConsumerPort;
-  private saving = false;
+  memoCleanupPending = false;
   private loggingIn = false;
   constructor(
     readonly store: Store,
@@ -80,42 +22,16 @@ export class Runtime {
   ) {
     this.api = new Api(store, credentials);
   }
-  identity() {
-    if (!this.api.state) throw Error('请先登录 DogO。');
-    return accountKey(this.api.state.server, this.api.state.username);
-  }
-  async pending() {
-    return this.store.read<Mutation | null>('pending-' + this.identity(), null);
-  }
-  async submit(input: unknown, retry = false) {
-    if (this.saving) throw Error('上一项写入仍在处理中。');
-    this.saving = true;
-    try {
-      const identity = this.identity();
-      const pending = await this.pending();
-      if (pending && !retry) throw Error('存在待确认写入，请先重试或核对后放弃该记录。');
-      const op = mutation.parse(retry ? pending : input);
-      if (!retry) await this.store.write('pending-' + identity, op);
-      const value = await this.execute(op);
-      await this.store.write('pending-' + identity, null);
-      return value;
-    } finally {
-      this.saving = false;
-    }
-  }
-  async execute(op: Mutation) {
-    if (op.method === 'create') return this.api.request('/api/memos', 'POST', op.data);
-    const path = '/api/memos/' + encodeURIComponent(op.id);
-    return this.api.request(
-      path + (op.method === 'append' ? '/append' : ''),
-      op.method === 'append' ? 'POST' : op.method === 'update' ? 'PUT' : 'DELETE',
-      op.data,
-    );
-  }
   async control(method: string, payload: any = {}) {
     switch (method) {
       case 'status':
-        return { ...this.api.view(), consumer: this.consumer?.view() };
+        return { ...this.api.view(), consumer: this.consumer?.view(), memoCleanupPending: this.memoCleanupPending };
+      case 'finish-memo-cleanup':
+        if (this.memoCleanupPending) {
+          await finishLegacyMemoCleanup(this.store.directory);
+          this.memoCleanupPending = false;
+        }
+        return { completed: true };
       case 'login': {
         const p = z
           .object({
@@ -125,7 +41,7 @@ export class Runtime {
             name: z.string().min(1).max(100),
           })
           .parse(payload);
-        if (this.loggingIn || this.saving) throw Error('正在处理，请稍后再试。');
+        if (this.loggingIn) throw Error('正在处理，请稍后再试。');
         this.loggingIn = true;
         try {
           return await this.api.login(p.server, p.username, p.password, p.name);
@@ -134,7 +50,7 @@ export class Runtime {
         }
       }
       case 'logout': {
-        if (this.saving || this.loggingIn) throw Error('请等待当前操作结束。');
+        if (this.loggingIn) throw Error('请等待当前操作结束。');
         this.loggingIn = true;
         try {
           return await this.api.logout();
@@ -149,28 +65,6 @@ export class Runtime {
           '/api/devices/' + encodeURIComponent(name.parse(payload.id)),
           'DELETE',
         );
-      case 'list': {
-        const p = z
-          .object({ project: z.string().optional(), cursor: z.string().optional() })
-          .parse(payload);
-        const query = new URLSearchParams({
-          limit: '100',
-          ...(p.project ? { project: p.project } : {}),
-          ...(p.cursor ? { cursor: p.cursor } : {}),
-        });
-        return this.api.request('/api/memos?' + query);
-      }
-      case 'get':
-        return this.api.request('/api/memos/' + encodeURIComponent(name.parse(payload.id)));
-      case 'submit':
-        return this.submit(payload);
-      case 'pending':
-        return this.pending();
-      case 'retry':
-        return this.submit(undefined, true);
-      case 'discard':
-        if (this.saving) throw Error('写入仍在处理中。');
-        return this.store.write('pending-' + this.identity(), null);
       case 'configure': {
         const p = z.object({ enabled: z.boolean(), cwd: z.string() }).parse(payload);
         if (!this.consumer) throw Error('设备插件尚未就绪。');
@@ -204,7 +98,7 @@ export class Runtime {
   }
 }
 
-// Both independently bundled plugins share one in-process auth/refresh owner.
+// The device plugin owns one in-process auth/refresh instance.
 const symbol = Symbol.for('dogo.runtime.v1');
 interface Shared {
   runtime: Runtime;

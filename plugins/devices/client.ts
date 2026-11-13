@@ -1,2 +1,2 @@
 import { registerClient } from '../shared/client.js';
-registerClient('devices', 'DogO 设备');
+registerClient('DogO 设备');
