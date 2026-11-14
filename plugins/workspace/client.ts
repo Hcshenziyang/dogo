@@ -1,5 +1,7 @@
 import { createUI } from '../shared/ui.js';
+import { EditorView } from '@codemirror/view';
 import { createMarkdownEditor } from './markdown-editor.js';
+import { markdownRenderer, readImage, resolveNote } from './markdown-render.js';
 import { styles } from './styles.js';
 
 declare const window: any;
@@ -162,6 +164,60 @@ window.__ModuleLoader__.load({
         ),
       );
     }
+    function MarkdownReader({ value, control, onWiki, onExternal }: any) {
+      const container = React.useRef(null as HTMLElement | null);
+      const html = React.useMemo(() => markdownRenderer.render(value), [value]);
+      React.useEffect(() => {
+        const urls: string[] = [];
+        let alive = true;
+        const root = container.current;
+        if (!root) return;
+        for (const image of Array.from(
+          root.querySelectorAll('img[data-image-path]'),
+        ) as HTMLImageElement[]) {
+          const path = image.dataset.imagePath;
+          if (!path) continue;
+          void readImage(control, path)
+            .then((url) => {
+              if (!alive) {
+                URL.revokeObjectURL(url);
+                return;
+              }
+              urls.push(url);
+              image.src = url;
+            })
+            .catch(() => {
+              image.alt = (image.alt || path) + '（图片不可用）';
+            });
+        }
+        return () => {
+          alive = false;
+          urls.forEach((url) => URL.revokeObjectURL(url));
+        };
+      }, [html, control]);
+      return h('div', {
+        ref: container,
+        className: 'dw-reader',
+        'aria-label': '笔记阅读',
+        dangerouslySetInnerHTML: { __html: html },
+        onClick: (event: any) => {
+          const link = (event.target as Element).closest('a');
+          if (!link) return;
+          event.preventDefault();
+          const wiki = link.getAttribute('data-wiki');
+          const href = link.getAttribute('href') || '';
+          if (wiki) onWiki(wiki);
+          else if (/^https?:\/\//i.test(href)) onExternal(href);
+          else if (href && !/^(?:[a-z][a-z\d+.-]*:|\/|#)/i.test(href)) {
+            try {
+              onWiki(decodeURIComponent(href));
+            } catch {
+              onWiki(href);
+            }
+          }
+        },
+      });
+    }
     function FixedChat(props: any) {
       return props.renderSlot('conversation.session', { view: 'chat' });
     }
@@ -182,8 +238,11 @@ window.__ModuleLoader__.load({
           h('option', { value: 'follow' }, '跟随当前 · ' + page.currentLabel),
           h('option', { value: 'tasks' }, '待办'),
           ...page.documents.map((item: Dict) =>
-            h('option', { key: item.id, value: 'doc:' + item.id },
-              (item.kind === 'canvas' ? '画布 · ' : '笔记 · ') + item.title),
+            h(
+              'option',
+              { key: item.id, value: 'doc:' + item.id },
+              (item.kind === 'canvas' ? '画布 · ' : '笔记 · ') + item.title,
+            ),
           ),
         ),
       );
@@ -220,7 +279,9 @@ window.__ModuleLoader__.load({
         [mode, setMode] = React.useState('note');
       const [search, setSearch] = React.useState(''),
         [filter, setFilter] = React.useState('open'),
-        [sourceMode, setSourceMode] = React.useState(false);
+        [sourceMode, setSourceMode] = React.useState(false),
+        [reading, setReading] = React.useState(false),
+        [history, setHistory] = React.useState([] as any[]);
       const [selectedPage, setSelectedPage] = React.useState('follow'),
         [syncedContext, setSyncedContext] = React.useState(''),
         [contextError, setContextError] = React.useState(''),
@@ -242,12 +303,16 @@ window.__ModuleLoader__.load({
       const draft = React.useRef(null as Draft | null),
         saveTimer = React.useRef(null as any),
         saving = React.useRef(null as Promise<void> | null),
+        uploads = React.useRef(new Set<Promise<unknown>>()),
         mounted = React.useRef(true);
       const referenceRef = React.useRef(null as any),
         editor = React.useRef(null as any),
         contextOwner = React.useRef(makeId()),
         contextQueue = React.useRef(Promise.resolve() as Promise<unknown>),
-        navigation = React.useRef(0);
+        navigation = React.useRef(0),
+        editorRestore = React.useRef(null as any),
+        editPosition = React.useRef(null as any),
+        contentScroll = React.useRef(null as HTMLElement | null);
       const refresh = async () => {
         const [s, list] = await Promise.all([control('status'), control('list')]);
         if (mounted.current) {
@@ -322,6 +387,7 @@ window.__ModuleLoader__.load({
       }
       async function flush(): Promise<void> {
         clearTimeout(saveTimer.current);
+        if (uploads.current.size) await Promise.all([...uploads.current]);
         if (saving.current) {
           await saving.current;
           if (draft.current?.dirty) return flush();
@@ -376,6 +442,96 @@ window.__ModuleLoader__.load({
         } finally {
           if (navigation.current === ticket) setNavigating(false);
         }
+      }
+      function savePosition() {
+        const selection = editor.current?.state.selection.main;
+        return {
+          id: draft.current?.id,
+          anchor: selection?.anchor || 0,
+          head: selection?.head || 0,
+          scrollTop: contentScroll.current?.scrollTop || 0,
+        };
+      }
+      async function openWiki(target: string) {
+        const note = target.startsWith('#')
+          ? listing.documents.find((item: Dict) => item.id === draft.current?.id)
+          : resolveNote(target, listing.documents);
+        if (!note) throw Error('未找到笔记：' + target);
+        const current = savePosition();
+        await openDocument(note.id);
+        if (current.id && current.id !== note.id) setHistory((items: any[]) => [...items, current]);
+        editorRestore.current = null;
+        const heading = target.includes('#') ? target.slice(target.indexOf('#') + 1).trim() : '';
+        requestAnimationFrame(() => {
+          if (!heading) {
+            if (contentScroll.current) contentScroll.current.scrollTop = 0;
+            return;
+          }
+          if (reading) {
+            const headings = Array.from(
+              contentScroll.current?.querySelectorAll(
+                '.dw-reader h1,.dw-reader h2,.dw-reader h3,.dw-reader h4,.dw-reader h5,.dw-reader h6',
+              ) || [],
+            );
+            const match = headings.find(
+              (item: any) => item.textContent?.trim().toLowerCase() === heading.toLowerCase(),
+            );
+            if (match) {
+              (match as HTMLElement).scrollIntoView({ block: 'start' });
+              return;
+            }
+          } else if (editor.current) {
+            const text = editor.current.state.doc;
+            for (let number = 1; number <= text.lines; number++) {
+              const line = text.line(number);
+              const title = line.text.match(/^#{1,6}\s+(.+?)\s*#*\s*$/)?.[1];
+              if (title?.trim().toLowerCase() === heading.toLowerCase()) {
+                editor.current.dispatch({
+                  selection: { anchor: line.from },
+                  effects: EditorView.scrollIntoView(line.from, { y: 'center' }),
+                });
+                editor.current.focus();
+                return;
+              }
+            }
+          }
+          setError('未找到标题：' + heading);
+        });
+      }
+      async function goBack() {
+        const position = history[history.length - 1];
+        if (!position) return;
+        editorRestore.current = position;
+        try {
+          await openDocument(position.id);
+          setHistory((items: any[]) => items.slice(0, -1));
+          requestAnimationFrame(() => {
+            if (contentScroll.current) contentScroll.current.scrollTop = position.scrollTop;
+          });
+        } catch (error) {
+          editorRestore.current = null;
+          throw error;
+        }
+      }
+      function openExternal(href: string) {
+        if (/^https?:\/\//i.test(href)) window.open(href, '_blank', 'noopener,noreferrer');
+      }
+      function toggleReading() {
+        if (!reading) editPosition.current = savePosition();
+        setReading(!reading);
+        if (reading)
+          requestAnimationFrame(() => {
+            editor.current?.requestMeasure();
+            if (editPosition.current?.id === draft.current?.id) {
+              const { anchor, head, scrollTop } = editPosition.current;
+              const length = editor.current?.state.doc.length ?? 0;
+              editor.current?.dispatch({
+                selection: { anchor: Math.min(anchor, length), head: Math.min(head, length) },
+              });
+              if (contentScroll.current) contentScroll.current.scrollTop = scrollTop;
+            }
+            editor.current?.focus();
+          });
       }
       async function switchTasks() {
         const ticket = ++navigation.current;
@@ -606,9 +762,15 @@ window.__ModuleLoader__.load({
           return;
         }
         const selection = editor.current?.state.selection.main;
-        const selected = selection && selection.from !== selection.to
-          ? editor.current.state.sliceDoc(selection.from, selection.to)
-          : current.content;
+        const readSelection = window.getSelection?.();
+        const selected = reading
+          ? readSelection?.anchorNode &&
+            contentScroll.current?.querySelector('.dw-reader')?.contains(readSelection.anchorNode)
+            ? readSelection.toString() || current.content
+            : current.content
+          : selection && selection.from !== selection.to
+            ? editor.current.state.sliceDoc(selection.from, selection.to)
+            : current.content;
         if (!selected.trim()) {
           setError('当前内容为空。');
           return;
@@ -648,7 +810,9 @@ window.__ModuleLoader__.load({
         const releaseContext = () => {
           const sessionId = referenceRef.current?.sessionId;
           if (sessionId)
-            void control('clear-page-context', { sessionId, owner: contextOwner.current }).catch(() => {});
+            void control('clear-page-context', { sessionId, owner: contextOwner.current }).catch(
+              () => {},
+            );
         };
         window.addEventListener('pagehide', releaseContext);
         void refresh()
@@ -681,10 +845,14 @@ window.__ModuleLoader__.load({
           window.removeEventListener('pagehide', releaseContext);
           const sessionId = referenceRef.current?.sessionId;
           if (sessionId)
-            void contextQueue.current.finally(() => control('clear-page-context', {
-              sessionId,
-              owner: contextOwner.current,
-            })).catch(() => {});
+            void contextQueue.current
+              .finally(() =>
+                control('clear-page-context', {
+                  sessionId,
+                  owner: contextOwner.current,
+                }),
+              )
+              .catch(() => {});
           referenceRef.current?.release();
           referenceRef.current = null;
         };
@@ -696,21 +864,32 @@ window.__ModuleLoader__.load({
       }, [notice]);
       const documents = listing.documents as Dict[],
         tasks = listing.tasks as Dict[];
-      const documentTitle = doc?.kind === 'note'
-        ? doc.content.match(/^#[ \t]+([^\r\n]+)\s*$/m)?.[1]?.trim() || doc.id.slice(0, -3)
-        : doc?.title;
-      const currentPage = mode === 'tasks'
-        ? { kind: 'tasks' }
-        : doc ? { kind: doc.kind, id: doc.id, title: documentTitle } : { kind: 'none' };
+      const documentTitle =
+        doc?.kind === 'note'
+          ? doc.content.match(/^#[ \t]+([^\r\n]+)\s*$/m)?.[1]?.trim() || doc.id.slice(0, -3)
+          : doc?.title;
+      const currentPage =
+        mode === 'tasks'
+          ? { kind: 'tasks' }
+          : doc
+            ? { kind: doc.kind, id: doc.id, title: documentTitle }
+            : { kind: 'none' };
       const currentLabel = mode === 'tasks' ? '待办' : documentTitle || '未打开页面';
       const chosen = selectedPage.startsWith('doc:')
         ? documents.find((item) => item.id === selectedPage.slice(4))
         : null;
-      const referencePage = selectedPage === 'follow'
-        ? currentPage
-        : selectedPage === 'tasks'
-          ? { kind: 'tasks' }
-          : chosen ? { kind: chosen.kind, id: chosen.id, title: chosen.id === doc?.id ? documentTitle : chosen.title } : { kind: 'none' };
+      const referencePage =
+        selectedPage === 'follow'
+          ? currentPage
+          : selectedPage === 'tasks'
+            ? { kind: 'tasks' }
+            : chosen
+              ? {
+                  kind: chosen.kind,
+                  id: chosen.id,
+                  title: chosen.id === doc?.id ? documentTitle : chosen.title,
+                }
+              : { kind: 'none' };
       const sessionId = reference?.sessionId as string | undefined;
       const contextPayload = {
         sessionId,
@@ -727,16 +906,20 @@ window.__ModuleLoader__.load({
         if (!sessionId) return;
         let active = true;
         setContextError('');
-        const operation = contextQueue.current.catch(() => {}).then(() =>
-          control('set-page-context', contextPayload),
-        );
+        const operation = contextQueue.current
+          .catch(() => {})
+          .then(() => control('set-page-context', contextPayload));
         contextQueue.current = operation;
-        void operation.then(() => {
-          if (active) setSyncedContext(contextKey);
-        }).catch((e: unknown) => {
-          if (active) setContextError(errorText(e));
-        });
-        return () => { active = false; };
+        void operation
+          .then(() => {
+            if (active) setSyncedContext(contextKey);
+          })
+          .catch((e: unknown) => {
+            if (active) setContextError(errorText(e));
+          });
+        return () => {
+          active = false;
+        };
       }, [sessionId, contextKey, contextRetry]);
       const contextPending = !!reference && (navigating || syncedContext !== contextKey);
       const matching = documents.filter((x) =>
@@ -877,19 +1060,42 @@ window.__ModuleLoader__.load({
       } else if (mode === 'note') {
         content = h(
           'div',
-          { className: 'dw-content' },
+          { className: 'dw-content', ref: contentScroll },
           h(
             'article',
             { className: 'dw-document' },
             h('div', { className: 'dw-kicker' }, '笔记  ·  本机知识库'),
-            h(MarkdownEditor, {
-              key: doc.id,
-              value: doc.content,
-              source: sourceMode,
-              onChange: updateContent,
-              onBlur: () => report(flush()),
-              onReady: (value: any) => { editor.current = value; },
-            }),
+            h(
+              'div',
+              { style: { display: reading ? 'none' : undefined } },
+              h(MarkdownEditor, {
+                key: doc.id,
+                value: doc.content,
+                source: sourceMode,
+                notes: documents,
+                control,
+                onWiki: (target: string) => report(openWiki(target)),
+                onExternal: openExternal,
+                onError: showError,
+                onUpload: (upload: Promise<unknown>) => {
+                  uploads.current.add(upload);
+                  void upload.finally(() => uploads.current.delete(upload));
+                },
+                restore: editorRestore.current,
+                onChange: updateContent,
+                onBlur: () => report(flush()),
+                onReady: (value: any) => {
+                  editor.current = value;
+                },
+              }),
+            ),
+            reading &&
+              h(MarkdownReader, {
+                value: doc.content,
+                control,
+                onWiki: (target: string) => report(openWiki(target)),
+                onExternal: openExternal,
+              }),
           ),
         );
       } else {
@@ -1012,7 +1218,12 @@ window.__ModuleLoader__.load({
                   () => setConnecting(connecting ? '' : 'pick'),
                   { className: connecting ? 'active' : '' },
                 ),
-              mode === 'note' && btn(sourceMode ? '实时预览' : '源码', () => setSourceMode(!sourceMode)),
+              mode === 'note' && history.length > 0 && btn('返回笔记', () => report(goBack())),
+              mode === 'note' &&
+                btn(reading ? '编辑' : '阅读', toggleReading, { title: '切换阅读视图 (⌘E)' }),
+              mode === 'note' &&
+                !reading &&
+                btn(sourceMode ? '实时预览' : '源码', () => setSourceMode(!sourceMode)),
               btn('引用到 AI', () => {
                 try {
                   quoteCurrent();
@@ -1035,11 +1246,14 @@ window.__ModuleLoader__.load({
           h('span', { className: 'dw-spacer' }),
           btn('关闭', () => setShowAi(false), { className: 'dw-head-mobile' }),
         ),
-        reference && contextPending && h(
-          'div', { className: 'dw-context-status', role: 'status' },
-          contextError ? '页面同步失败：' + contextError : '正在更新页面上下文…',
-          contextError && btn('重试', () => setContextRetry((x: number) => x + 1)),
-        ),
+        reference &&
+          contextPending &&
+          h(
+            'div',
+            { className: 'dw-context-status', role: 'status' },
+            contextError ? '页面同步失败：' + contextError : '正在更新页面上下文…',
+            contextError && btn('重试', () => setContextRetry((x: number) => x + 1)),
+          ),
         (status?.proposals || []).length > 0 &&
           h(
             'div',
@@ -1056,8 +1270,18 @@ window.__ModuleLoader__.load({
           'div',
           { className: 'dw-ai-body', inert: contextPending ? '' : undefined },
           reference
-            ? h(PageContext.Provider, { value: { selected: selectedPage, setSelected: setSelectedPage, currentLabel, documents } },
-                h(SessionProvider, { session: reference }, renderSlot('dogo.workspace.chat', {})))
+            ? h(
+                PageContext.Provider,
+                {
+                  value: {
+                    selected: selectedPage,
+                    setSelected: setSelectedPage,
+                    currentLabel,
+                    documents,
+                  },
+                },
+                h(SessionProvider, { session: reference }, renderSlot('dogo.workspace.chat', {})),
+              )
             : h(
                 'div',
                 { className: 'dw-empty' },
@@ -1139,6 +1363,17 @@ window.__ModuleLoader__.load({
         {
           className: 'dw ' + (showTree ? 'show-tree ' : '') + (showAi ? 'show-ai' : ''),
           'data-dogo': 'workspace',
+          onKeyDown: (event: any) => {
+            if (
+              mode === 'note' &&
+              (event.metaKey || event.ctrlKey) &&
+              event.key.toLowerCase() === 'e'
+            ) {
+              event.preventDefault();
+              event.stopPropagation();
+              toggleReading();
+            }
+          },
         },
         h('style', null, styles),
         h(
@@ -1211,7 +1446,10 @@ window.__ModuleLoader__.load({
         ctx.slots.register({ name: 'dogo.workspace.chat' }, EmbeddedChat),
       );
       ctx.slots.inject('conversation.input.dock', () =>
-        ctx.slots.register({ name: 'conversation.input.dock', id: 'dogo-workspace-page', order: 10 }, PagePicker),
+        ctx.slots.register(
+          { name: 'conversation.input.dock', id: 'dogo-workspace-page', order: 10 },
+          PagePicker,
+        ),
       );
       ctx.slots.inject('sidebar.panellist', () =>
         ctx.slots.register(

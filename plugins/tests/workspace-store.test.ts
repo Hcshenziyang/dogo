@@ -22,7 +22,11 @@ describe('local knowledge workspace', () => {
     const { store } = await setup();
     const note = (await store.control('list')).documents.find((d: any) => d.kind === 'note');
     const canvas = (await store.control('list')).documents.find((d: any) => d.kind === 'canvas');
-    await store.control('save', { id: note.id, revision: note.revision, content: '# 页面\n私有正文' });
+    await store.control('save', {
+      id: note.id,
+      revision: note.revision,
+      content: '# 页面\n私有正文',
+    });
     await store.control('bind-session', { id: 'knowledge-session' });
     const input = {
       sessionId: 'knowledge-session',
@@ -43,16 +47,22 @@ describe('local knowledge workspace', () => {
     expect(selected.current).toEqual({ kind: 'tasks' });
     expect(selected.reference.id).toBe(canvas.id);
     expect(store.pageContext('knowledge-session')).toEqual(selected);
-    await expect(store.control('set-page-context', { ...input, owner: 'window-b' })).rejects.toThrow(
-      '其他窗口',
-    );
-    await expect(store.control('set-page-context', { ...input, sessionId: 'project' })).rejects.toThrow(
-      '会话无效',
-    );
     await expect(
-      store.control('set-page-context', { ...input, current: { kind: 'note', id: '../outside.md' } }),
+      store.control('set-page-context', { ...input, owner: 'window-b' }),
+    ).rejects.toThrow('其他窗口');
+    await expect(
+      store.control('set-page-context', { ...input, sessionId: 'project' }),
+    ).rejects.toThrow('会话无效');
+    await expect(
+      store.control('set-page-context', {
+        ...input,
+        current: { kind: 'note', id: '../outside.md' },
+      }),
     ).rejects.toThrow();
-    await store.control('clear-page-context', { sessionId: input.sessionId, owner: 'another-window' });
+    await store.control('clear-page-context', {
+      sessionId: input.sessionId,
+      owner: 'another-window',
+    });
     expect(store.pageContext(input.sessionId)).toEqual(selected);
     await store.control('clear-page-context', { sessionId: input.sessionId, owner: input.owner });
     expect(store.pageContext(input.sessionId)).toBeUndefined();
@@ -166,5 +176,50 @@ describe('local knowledge workspace', () => {
     await restarted.initialize();
     expect(restarted.isManagedSession('knowledge-session')).toBe(true);
     expect(restarted.isManagedSession('another-project')).toBe(false);
+  });
+});
+
+describe('workspace image attachments', () => {
+  it('stores chunked images without overwriting and reads them after restart', async () => {
+    const { store, root } = await setup();
+    const png = Buffer.concat([Buffer.from('89504e470d0a1a0a', 'hex'), Buffer.alloc(530000, 42)]);
+    async function upload() {
+      const { id } = await store.control('image-upload-start', { type: 'image/png' });
+      for (let i = 0; i < png.length; i += 512 * 1024)
+        await store.control('image-upload-chunk', {
+          id,
+          data: png.subarray(i, i + 512 * 1024).toString('base64'),
+        });
+      return (await store.control('image-upload-finish', { id })).path;
+    }
+    const first = await upload(),
+      second = await upload();
+    expect(first).not.toBe(second);
+    expect(await readFile(join(root, first))).toEqual(png);
+    const restarted = new WorkspaceStore(root);
+    const a = await restarted.control('image-read', { path: first });
+    const b = await restarted.control('image-read', { path: first, offset: 512 * 1024 });
+    expect(Buffer.concat([Buffer.from(a.data, 'base64'), Buffer.from(b.data, 'base64')])).toEqual(
+      png,
+    );
+  });
+  it('refuses traversal, symlinks, executable content and unsupported image formats', async () => {
+    const { store, root, tmp } = await setup();
+    await writeFile(join(tmp, 'outside.png'), Buffer.from('89504e470d0a1a0a', 'hex'));
+    await symlink(tmp, join(root, 'outside'));
+    for (const path of [
+      '../outside.png',
+      '%2e%2e/outside.png',
+      '/outside.png',
+      'outside/outside.png',
+    ])
+      await expect(store.control('image-read', { path })).rejects.toThrow();
+    const { id } = await store.control('image-upload-start', { type: 'image/png' });
+    await store.control('image-upload-chunk', {
+      id,
+      data: Buffer.from('<script>bad</script>').toString('base64'),
+    });
+    await expect(store.control('image-upload-finish', { id })).rejects.toThrow('格式');
+    await expect(store.control('image-upload-start', { type: 'image/svg+xml' })).rejects.toThrow();
   });
 });

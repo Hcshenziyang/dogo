@@ -1,9 +1,53 @@
 import { createHash, randomUUID, randomBytes } from 'node:crypto';
 import { constants } from 'node:fs';
-import { mkdir, open, readFile, readdir, rename, stat, unlink } from 'node:fs/promises';
+import { lstat, mkdir, open, readFile, readdir, rename, stat, unlink } from 'node:fs/promises';
 import { basename, extname, join } from 'node:path';
 
 const MAX_CONTENT = 1024 * 1024;
+const MAX_IMAGE = 10 * 1024 * 1024;
+const IMAGE_CHUNK = 512 * 1024;
+const imageTypes: Record<string, string> = {
+  '.png': 'image/png',
+  '.jpg': 'image/jpeg',
+  '.jpeg': 'image/jpeg',
+  '.gif': 'image/gif',
+  '.webp': 'image/webp',
+};
+
+function imagePath(value: unknown): string[] {
+  if (typeof value !== 'string' || value.length > 1024 || /[\\\0]/.test(value))
+    throw Error('图片路径无效。');
+  let decoded: string;
+  try {
+    decoded = decodeURIComponent(value);
+  } catch {
+    throw Error('图片路径无效。');
+  }
+  const parts = decoded.split('/');
+  if (
+    parts.some(
+      (part) =>
+        !part || part === '.' || part === '..' || part.startsWith('.') || /[\\\0]/.test(part),
+    )
+  )
+    throw Error('图片路径无效。');
+  if (!imageTypes[extname(parts[parts.length - 1]!).toLowerCase()])
+    throw Error('不支持此图片格式。');
+  return parts;
+}
+
+function imageMatches(bytes: Buffer, type: string): boolean {
+  if (type === 'image/png')
+    return bytes.subarray(0, 8).equals(Buffer.from('89504e470d0a1a0a', 'hex'));
+  if (type === 'image/jpeg') return bytes.subarray(0, 3).equals(Buffer.from('ffd8ff', 'hex'));
+  if (type === 'image/gif')
+    return ['GIF87a', 'GIF89a'].includes(bytes.subarray(0, 6).toString('ascii'));
+  return (
+    type === 'image/webp' &&
+    bytes.subarray(0, 4).toString('ascii') === 'RIFF' &&
+    bytes.subarray(8, 12).toString('ascii') === 'WEBP'
+  );
+}
 const seedNote = `# 欢迎使用知识工作区\n\n这里是你的本地 Markdown 笔记。直接编辑内容，或在右侧与 AI 一起整理想法。\n\n## 试试看\n\n- [ ] 写下第一个想法\n- [ ] 打开画布，整理内容之间的关系\n\nAI 提出的修改需要你查看并应用。\n`;
 const seedCanvas = {
   nodes: [
@@ -149,6 +193,10 @@ export class WorkspaceStore {
   private readonly pageContexts = new Map<string, { owner: string; value: WorkspacePageContext }>();
   private ready: Promise<void> | undefined;
   private tail: Promise<unknown> = Promise.resolve();
+  private readonly imageUploads = new Map<
+    string,
+    { type: string; chunks: Buffer[]; size: number; updated: number }
+  >();
   constructor(readonly directory: string) {}
   private async serial<T>(fn: () => Promise<T>): Promise<T> {
     const work = this.tail.then(fn, fn);
@@ -308,6 +356,15 @@ export class WorkspaceStore {
       tasks: docs.flatMap(parseTasks),
     };
   }
+  private async imageFile(value: unknown): Promise<{ path: string; type: string }> {
+    const parts = imagePath(value);
+    let path = this.directory;
+    for (const part of parts) {
+      path = join(path, part);
+      if ((await lstat(path)).isSymbolicLink()) throw Error('图片路径不能包含符号链接。');
+    }
+    return { path, type: imageTypes[extname(path).toLowerCase()]! };
+  }
   isManagedSession(id: unknown): boolean {
     return typeof id === 'string' && this.metadata.sessions.includes(id);
   }
@@ -327,6 +384,93 @@ export class WorkspaceStore {
     await this.initialize();
     return this.serial(async () => {
       switch (method) {
+        case 'image-read': {
+          const { path, type } = await this.imageFile(payload.path);
+          const f = await open(path, constants.O_RDONLY | (constants.O_NOFOLLOW || 0));
+          try {
+            const info = await f.stat();
+            if (!info.isFile() || info.size > MAX_IMAGE || info.size === 0)
+              throw Error('图片过大或不是文件。');
+            const offset = payload.offset ?? 0;
+            if (!Number.isSafeInteger(offset) || offset < 0 || offset >= info.size)
+              throw Error('图片读取位置无效。');
+            const bytes = Buffer.alloc(Math.min(IMAGE_CHUNK, info.size - offset));
+            const { bytesRead } = await f.read(bytes, 0, bytes.length, offset);
+            if (!bytesRead) throw Error('图片读取失败。');
+            if (offset === 0 && !imageMatches(bytes.subarray(0, bytesRead), type))
+              throw Error('图片格式不匹配。');
+            return { type, size: info.size, data: bytes.subarray(0, bytesRead).toString('base64') };
+          } finally {
+            await f.close();
+          }
+        }
+        case 'image-upload-start': {
+          for (const [id, upload] of this.imageUploads)
+            if (Date.now() - upload.updated > 300000) this.imageUploads.delete(id);
+          if (!Object.values(imageTypes).includes(payload.type) || this.imageUploads.size >= 10)
+            throw Error('不支持此图片或上传任务过多。');
+          const id = randomUUID();
+          this.imageUploads.set(id, {
+            type: payload.type,
+            chunks: [],
+            size: 0,
+            updated: Date.now(),
+          });
+          return { id };
+        }
+        case 'image-upload-chunk': {
+          const upload = this.imageUploads.get(payload.id);
+          if (
+            !upload ||
+            typeof payload.data !== 'string' ||
+            payload.data.length > Math.ceil(IMAGE_CHUNK / 3) * 4 + 4 ||
+            !/^[A-Za-z0-9+/]*={0,2}$/.test(payload.data)
+          )
+            throw Error('图片上传数据无效。');
+          const bytes = Buffer.from(payload.data, 'base64');
+          if (
+            !bytes.length ||
+            bytes.length > IMAGE_CHUNK ||
+            upload.size + bytes.length > MAX_IMAGE
+          ) {
+            this.imageUploads.delete(payload.id);
+            throw Error('图片过大或上传数据无效。');
+          }
+          upload.chunks.push(bytes);
+          upload.size += bytes.length;
+          upload.updated = Date.now();
+          return { size: upload.size };
+        }
+        case 'image-upload-cancel':
+          this.imageUploads.delete(payload.id);
+          return {};
+        case 'image-upload-finish': {
+          const upload = this.imageUploads.get(payload.id);
+          this.imageUploads.delete(payload.id);
+          if (!upload || !imageMatches(Buffer.concat(upload.chunks), upload.type))
+            throw Error('图片格式无效。');
+          const folder = join(this.directory, 'attachments');
+          await mkdir(folder, { mode: 0o700 }).catch((e: NodeJS.ErrnoException) => {
+            if (e.code !== 'EEXIST') throw e;
+          });
+          if (!(await lstat(folder)).isDirectory() || (await lstat(folder)).isSymbolicLink())
+            throw Error('附件目录无效。');
+          const extension = Object.entries(imageTypes).find(
+            ([ext, type]) => type === upload.type && ext !== '.jpeg',
+          )![0];
+          const name = 'image-' + randomUUID() + extension;
+          const f = await open(join(folder, name), 'wx', 0o600);
+          try {
+            await f.writeFile(Buffer.concat(upload.chunks));
+            await f.sync();
+          } catch (e) {
+            await unlink(join(folder, name)).catch(() => {});
+            throw e;
+          } finally {
+            await f.close();
+          }
+          return { path: 'attachments/' + name };
+        }
         case 'status':
           return {
             directory: this.directory,
@@ -416,7 +560,8 @@ export class WorkspaceStore {
           if (existing && existing.owner !== owner)
             throw Error('此知识会话正在其他窗口使用，请关闭原窗口后重试。');
           const current = await this.page(payload.current);
-          const reference = payload.selection === 'follow' ? current : await this.page(payload.reference);
+          const reference =
+            payload.selection === 'follow' ? current : await this.page(payload.reference);
           const value: WorkspacePageContext = { current, reference, selection: payload.selection };
           this.pageContexts.set(payload.sessionId, { owner, value });
           return value;
