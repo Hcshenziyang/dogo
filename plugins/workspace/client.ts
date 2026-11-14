@@ -24,7 +24,9 @@ window.__ModuleLoader__.load({
     const { Icon } = createUI(React);
     const MarkdownEditor = createMarkdownEditor(React);
     const PageContext = React.createContext(null);
-    const draftKey = (id: string) => 'dogo.workspace.draft.v1:' + id;
+    const draftKey = (vaultId: string, id: string) =>
+      'dogo.workspace.draft.v2:' + vaultId + ':' + id;
+    const legacyDraftKey = (id: string) => 'dogo.workspace.draft.v1:' + id;
     const errorText = (e: unknown) => (e as Error)?.message || String(e);
     const makeId = () => globalThis.crypto?.randomUUID?.() || Math.random().toString(36).slice(2);
     const btn = (label: string, onClick: () => void, extra: Dict = {}) =>
@@ -272,7 +274,16 @@ window.__ModuleLoader__.load({
         { slots: { views: FixedChat } },
       );
     }
-    function Panel({ control, layout, sessions, conversation, SessionProvider, renderSlot }: any) {
+    function Panel({
+      control,
+      layout,
+      sessions,
+      conversation,
+      SessionProvider,
+      renderSlot,
+      vault,
+      onSwitchVault,
+    }: any) {
       const [status, setStatus] = React.useState(null as Dict | null),
         [listing, setListing] = React.useState({ documents: [], tasks: [] } as Dict);
       const [doc, setDoc] = React.useState(null as Draft | null),
@@ -313,6 +324,18 @@ window.__ModuleLoader__.load({
         editorRestore = React.useRef(null as any),
         editPosition = React.useRef(null as any),
         contentScroll = React.useRef(null as HTMLElement | null);
+      const imageControl = React.useCallback(
+        async (method: string, payload: Dict = {}) => {
+          const id = draft.current?.id as string | undefined;
+          const result = await control(method, { ...payload, documentId: id });
+          if (method === 'image-upload-finish' && id && result?.path) {
+            const depth = id.split('/').length - 1;
+            return { ...result, path: '../'.repeat(depth) + result.path };
+          }
+          return result;
+        },
+        [control],
+      );
       const refresh = async () => {
         const [s, list] = await Promise.all([control('status'), control('list')]);
         if (mounted.current) {
@@ -330,7 +353,7 @@ window.__ModuleLoader__.load({
       function cacheDraft(value: Draft) {
         try {
           localStorage.setItem(
-            draftKey(value.id),
+            draftKey(vault.id, value.id),
             JSON.stringify({ content: value.content, revision: value.revision }),
           );
         } catch {
@@ -339,7 +362,7 @@ window.__ModuleLoader__.load({
       }
       function clearDraft(id: string) {
         try {
-          localStorage.removeItem(draftKey(id));
+          localStorage.removeItem(draftKey(vault.id, id));
         } catch {}
       }
       function install(value: Dict) {
@@ -353,7 +376,15 @@ window.__ModuleLoader__.load({
           dirty: false,
         };
         try {
-          const saved = JSON.parse(localStorage.getItem(draftKey(value.id)) || 'null');
+          let encoded = localStorage.getItem(draftKey(vault.id, value.id));
+          if (!encoded && vault.legacy) {
+            encoded = localStorage.getItem(legacyDraftKey(value.id));
+            if (encoded) {
+              localStorage.setItem(draftKey(vault.id, value.id), encoded);
+              localStorage.removeItem(legacyDraftKey(value.id));
+            }
+          }
+          const saved = JSON.parse(encoded || 'null');
           if (saved && typeof saved.content === 'string' && typeof saved.revision === 'string') {
             if (saved.content === value.content) clearDraft(value.id);
             else {
@@ -455,7 +486,7 @@ window.__ModuleLoader__.load({
       async function openWiki(target: string) {
         const note = target.startsWith('#')
           ? listing.documents.find((item: Dict) => item.id === draft.current?.id)
-          : resolveNote(target, listing.documents);
+          : resolveNote(target, listing.documents, draft.current?.id);
         if (!note) throw Error('未找到笔记：' + target);
         const current = savePosition();
         await openDocument(note.id);
@@ -923,7 +954,7 @@ window.__ModuleLoader__.load({
       }, [sessionId, contextKey, contextRetry]);
       const contextPending = !!reference && (navigating || syncedContext !== contextKey);
       const matching = documents.filter((x) =>
-        x.title.toLowerCase().includes(search.toLowerCase()),
+        (x.title + ' ' + x.id).toLowerCase().includes(search.toLowerCase()),
       );
       const listButton = (x: Dict) =>
         h(
@@ -935,7 +966,7 @@ window.__ModuleLoader__.load({
             onClick: () => report(openDocument(x.id)),
           },
           h(Icon, { name: x.kind === 'note' ? 'note' : 'grid', size: 15, className: 'dw-icon' }),
-          h('span', null, x.title),
+          h('span', { title: x.id }, x.id.includes('/') ? x.id : x.title),
         );
       const tree = h(
         'aside',
@@ -943,8 +974,9 @@ window.__ModuleLoader__.load({
         h(
           'div',
           { className: 'dw-tree-top' },
-          h('strong', null, '我的知识库'),
+          h('strong', { title: vault.directory }, vault.name),
           h('span', { className: 'dw-spacer' }),
+          btn('切换', () => report(flush().then(onSwitchVault)), { title: '切换知识库' }),
           btn('+ 笔记', () => report(create('note')), { title: '新建笔记' }),
           btn('+ 画布', () => report(create('canvas')), { title: '新建画布' }),
         ),
@@ -971,6 +1003,12 @@ window.__ModuleLoader__.load({
             h('span', null, '待办'),
           ),
           ...matching.filter((x) => x.kind === 'canvas').map(listButton),
+          listing.skipped?.length > 0 &&
+            h(
+              'p',
+              { className: 'dw-caption', title: listing.skipped.join('\n') },
+              `有 ${listing.skipped.length} 个文件或目录无法读取`,
+            ),
         ),
         h(
           'div',
@@ -1067,13 +1105,16 @@ window.__ModuleLoader__.load({
             h('div', { className: 'dw-kicker' }, '笔记  ·  本机知识库'),
             h(
               'div',
-              { style: { display: reading ? 'none' : undefined } },
+              {
+                style: { display: reading ? 'none' : undefined },
+                inert: navigating ? true : undefined,
+              },
               h(MarkdownEditor, {
                 key: doc.id,
                 value: doc.content,
                 source: sourceMode,
                 notes: documents,
-                control,
+                control: imageControl,
                 onWiki: (target: string) => report(openWiki(target)),
                 onExternal: openExternal,
                 onError: showError,
@@ -1092,7 +1133,7 @@ window.__ModuleLoader__.load({
             reading &&
               h(MarkdownReader, {
                 value: doc.content,
-                control,
+                control: imageControl,
                 onWiki: (target: string) => report(openWiki(target)),
                 onExternal: openExternal,
               }),
@@ -1420,6 +1461,151 @@ window.__ModuleLoader__.load({
           }),
       );
     }
+    function WorkspaceRoot(props: any) {
+      const { control } = props;
+      const [registry, setRegistry] = React.useState(null as Dict | null);
+      const [selected, setSelected] = React.useState(null as Dict | null);
+      const [choosing, setChoosing] = React.useState(false);
+      const [path, setPath] = React.useState('');
+      const [error, setError] = React.useState('');
+      const [busy, setBusy] = React.useState(false);
+      const scoped = React.useMemo(
+        () =>
+          selected
+            ? (method: string, payload: Dict = {}) =>
+                control(method, { ...payload, vaultId: selected.id })
+            : null,
+        [control, selected?.id],
+      );
+      React.useEffect(() => {
+        let alive = true;
+        void control('vault-list')
+          .then((value: Dict) => {
+            if (!alive) return;
+            setRegistry(value);
+            setSelected(value.vaults.find((item: Dict) => item.id === value.selected) || null);
+          })
+          .catch((reason: unknown) => {
+            if (alive) setError(errorText(reason));
+          });
+        return () => {
+          alive = false;
+        };
+      }, [control]);
+      async function choose(method: string, payload: Dict = {}) {
+        if (busy) return;
+        setBusy(true);
+        setError('');
+        try {
+          const next = await control(method, payload);
+          if (!next) return;
+          const value = await control('vault-list');
+          setRegistry(value);
+          setSelected(next);
+          setChoosing(false);
+          setPath('');
+        } catch (reason) {
+          setError(errorText(reason));
+        } finally {
+          setBusy(false);
+        }
+      }
+      if (selected && !choosing && scoped)
+        return h(Panel, {
+          ...props,
+          key: selected.id,
+          control: scoped,
+          vault: selected,
+          onSwitchVault: () => {
+            setChoosing(true);
+            setError('');
+          },
+        });
+      return h(
+        'div',
+        { className: 'dw dw-vault-screen', 'data-dogo': 'workspace' },
+        h('style', null, styles),
+        h(
+          'section',
+          { className: 'dw-vault-picker', 'aria-label': '选择知识库' },
+          h('h1', null, '选择知识库'),
+          h('p', null, '选择已有文件夹，或使用默认知识库。'),
+          error && h('div', { className: 'dw-dialog-error', role: 'alert' }, error),
+          !registry && !error && h('p', null, '正在加载…'),
+          ...(registry?.vaults || []).map((item: Dict) =>
+            h(
+              'button',
+              {
+                key: item.id,
+                className: 'dw-vault-item',
+                type: 'button',
+                disabled: busy,
+                onClick: () => void choose('vault-select', { id: item.id }),
+              },
+              h('strong', null, item.name),
+              h('small', null, item.directory),
+            ),
+          ),
+          registry &&
+            !registry.vaults.some((item: Dict) => item.legacy) &&
+            h(
+              'button',
+              {
+                type: 'button',
+                className: 'dw-vault-item',
+                disabled: busy,
+                onClick: () =>
+                  void choose('vault-open', { path: registry.defaultDirectory, useDefault: true }),
+              },
+              h('strong', null, '使用默认知识库'),
+              h('small', null, registry.defaultDirectory),
+            ),
+          h(
+            'div',
+            { className: 'dw-vault-actions' },
+            btn(busy ? '正在打开…' : '选择文件夹', () => void choose('vault-choose'), {
+              className: 'primary',
+              disabled: busy,
+            }),
+            selected &&
+              btn(
+                '返回当前知识库',
+                () => {
+                  setChoosing(false);
+                  setError('');
+                },
+                { className: 'line', disabled: busy },
+              ),
+          ),
+          h(
+            'form',
+            {
+              className: 'dw-vault-path',
+              onSubmit: (event: any) => {
+                event.preventDefault();
+                void choose('vault-open', { path: path.trim() });
+              },
+            },
+            h(
+              'label',
+              null,
+              '或输入文件夹的绝对路径',
+              h('input', {
+                value: path,
+                onChange: (event: any) => setPath(event.target.value),
+                placeholder: '/path/to/vault',
+                'aria-label': '知识库目录',
+              }),
+            ),
+            h(
+              'button',
+              { type: 'submit', className: 'dw-btn line', disabled: busy || !path.trim() },
+              '打开',
+            ),
+          ),
+        ),
+      );
+    }
     function apply(ctx: any) {
       const control: Control = async (method, payload = {}) => {
         const result = await ctx.connection.rpc.call('/dogo-workspace', method, payload);
@@ -1439,7 +1625,7 @@ window.__ModuleLoader__.load({
               conversation: ctx.conversation,
             }),
           },
-          Panel,
+          WorkspaceRoot,
         ),
       );
       ctx.slots.inject('dogo.workspace.chat', () =>

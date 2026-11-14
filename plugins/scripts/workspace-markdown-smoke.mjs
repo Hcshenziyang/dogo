@@ -50,11 +50,16 @@ try {
     await welcome.waitFor({ timeout: 3000 });
     await welcome.click();
   } catch {}
+  await page.waitForTimeout(1200);
   const dialog = page.getByRole('dialog').first();
   if ((await dialog.count()) && (await dialog.getByRole('button', { name: '关闭' }).count()))
     await dialog.getByRole('button', { name: '关闭' }).click();
   await page.waitForTimeout(1000);
   await page.getByText('知识工作区', { exact: true }).first().click();
+  const picker = page.getByLabel('选择知识库');
+  if (await picker.count()) {
+    await picker.getByRole('button', { name: /使用默认知识库/ }).click();
+  }
   await page.getByLabel('笔记正文').waitFor();
   assert.equal(await realpath(await page.locator('.dw-tree-foot').getAttribute('title')), dir);
   async function create(name) {
@@ -110,7 +115,12 @@ try {
   assert(!(await readFile(join(dir, '编辑笔记.md'), 'utf8')).includes('新列'));
   await editor.press(process.platform === 'darwin' ? 'Meta+e' : 'Control+e');
   await page.getByLabel('笔记阅读').waitFor();
-  await page.evaluate(() => { window.open = (href) => { window.__openedLink = href; return null; }; });
+  await page.evaluate(() => {
+    window.open = (href) => {
+      window.__openedLink = href;
+      return null;
+    };
+  });
   await page.getByLabel('笔记阅读').getByRole('link', { name: '外链' }).click();
   assert.equal(await page.evaluate(() => window.__openedLink), 'https://example.com');
   await page.getByLabel('笔记阅读').getByRole('link', { name: '打开目标' }).click();
@@ -118,10 +128,9 @@ try {
   await page.getByRole('button', { name: '返回笔记', exact: true }).click();
   await page.getByLabel('笔记阅读').getByRole('heading', { name: '编辑笔记' }).waitFor();
   await page.getByRole('button', { name: '编辑', exact: true }).click();
+  await create('图片笔记');
   editor = page.getByLabel('笔记正文');
-  await editor.focus();
-  await editor.press(process.platform === 'darwin' ? 'Meta+End' : 'Control+End');
-  await editor.press('Enter');
+  await editor.fill('# 图片笔记\n\n');
   await editor.evaluate((element) => {
     const binary = atob(
       'iVBORw0KGgoAAAANSUhEUgAAAAEAAAABCAQAAAC1HAwCAAAAC0lEQVR42mNk+A8AAQUBAScY42YAAAAASUVORK5CYII=',
@@ -134,7 +143,7 @@ try {
       new ClipboardEvent('paste', { clipboardData: transfer, bubbles: true, cancelable: true }),
     );
   });
-  const withImage = await waitFile('编辑笔记', '![图片](attachments/image-');
+  const withImage = await waitFile('图片笔记', '![图片](attachments/image-');
   const imagePath = withImage.match(/!\[图片\]\((attachments\/[^)]+)\)/)?.[1];
   assert(imagePath);
   const imageBytes = await readFile(join(dir, imagePath));
@@ -149,7 +158,9 @@ try {
       ?.getAttribute('src')
       ?.startsWith('blob:'),
   );
-  await page.waitForFunction(() => document.querySelector('.dw-reader img[data-image-path]')?.naturalWidth > 0);
+  await page.waitForFunction(
+    () => document.querySelector('.dw-reader img[data-image-path]')?.naturalWidth > 0,
+  );
   if (process.env.EVAL_SCREENSHOT) await page.screenshot({ path: process.env.EVAL_SCREENSHOT });
   assert.deepEqual(errors, []);
   console.log(

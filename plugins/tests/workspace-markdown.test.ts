@@ -29,4 +29,14 @@ describe('workspace Markdown reader', () => {
     expect(resolveNote('目标#章节', notes)?.id).toBe('目标.md');
     expect(resolveNote('不存在', notes)).toBeUndefined();
   });
+  it('resolves links relative to nested notes and refuses ambiguous file names', () => {
+    const notes = [
+      { id: 'one/plan.md', title: '计划一', kind: 'note' },
+      { id: 'two/plan.md', title: '计划二', kind: 'note' },
+      { id: 'two/current.md', title: '当前', kind: 'note' },
+    ];
+    expect(resolveNote('plan', notes, 'two/current.md')?.id).toBe('two/plan.md');
+    expect(resolveNote('../one/plan', notes, 'two/current.md')?.id).toBe('one/plan.md');
+    expect(resolveNote('plan', notes)).toBeUndefined();
+  });
 });

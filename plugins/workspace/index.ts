@@ -3,28 +3,29 @@ import { join } from 'node:path';
 import { defineTool } from '@deepseek-ai/dsh-tools';
 import { createUserMessage } from '@deepseek-ai/dsh-llm';
 import { registerControlRoute } from '../vendor/dsh-remote/control-route.js';
-import { WorkspaceStore, type WorkspacePageContext } from './store.js';
+import type { WorkspacePageContext } from './store.js';
+import { Vaults } from './vaults.js';
 
 export const name = 'dogo-workspace';
-export const inject = ['connection', 'webServer', 'tools'];
+export const inject = ['connection', 'webServer', 'tools', 'directoryPicker'];
 const allowed = new Set(['dogo_workspace_list', 'dogo_workspace_read', 'dogo_workspace_propose']);
 
 export function apply(owner: any) {
   owner.inject(inject, async (ctx: any) => {
-    const directory = join(process.env.DSH_HOME || join(homedir(), '.dsh'), 'dogo', 'knowledge');
-    const store = new WorkspaceStore(directory);
-    await store.initialize();
+    const vaults = new Vaults(process.env.DSH_HOME || join(homedir(), '.dsh'));
+    await vaults.initialize();
     // Capture the selected page when a user message enters the inbox, so a
     // later page switch does not change an already queued question.
     const pendingPages = new Map<string, WorkspacePageContext | null>();
     ctx.on('agent/inbox/inserted', ({ agent, message }: any) => {
-      if (store.isManagedSession(agent.session.id) && message.source.kind === 'user')
+      const store = vaults.storeForSession(agent.session.id);
+      if (store && message.source.kind === 'user')
         pendingPages.set(message.id, store.pageContext(agent.session.id) ?? null);
     });
     ctx.on('agent/inbox/discarded', ({ message }: any) => pendingPages.delete(message.id));
     ctx.on('agent/pre-step', async ({ agent, messages: offered, signal }: any, next: any) => {
       const decision = await next();
-      if (!store.isManagedSession(agent.session.id)) return decision;
+      if (!vaults.storeForSession(agent.session.id)) return decision;
       if (decision.kind !== 'enter' || signal.aborted) {
         for (const message of offered) pendingPages.delete(message.id);
         return decision;
@@ -55,7 +56,7 @@ export function apply(owner: any) {
     ctx.effect(() =>
       ctx.tools.guard((exec: any) => {
         const id = exec.agent?.session?.id;
-        if (store.isManagedSession(id) && !allowed.has(exec.name)) {
+        if (vaults.storeForSession(id) && !allowed.has(exec.name)) {
           return '知识工作区会话只能读取知识库或提交待确认建议。请通过建议工具提交修改，由用户预览并应用。';
         }
         return undefined;
@@ -65,9 +66,21 @@ export function apply(owner: any) {
       registerControlRoute(
         '/dogo-workspace',
         ctx.connection,
-        async (method: string, payload: any) => {
+        async (method: string, payload: any, signal: AbortSignal) => {
           try {
-            return { ok: true, value: await store.control(method, payload) };
+            let value;
+            if (method === 'vault-list') value = vaults.list();
+            else if (method === 'vault-open')
+              value = await vaults.openDirectory(payload.path, payload.useDefault === true);
+            else if (method === 'vault-select') value = await vaults.select(payload.id);
+            else if (method === 'vault-choose') {
+              const picker = ctx.directoryPicker.capability();
+              if (picker.kind !== 'native')
+                throw Error('当前环境不支持系统文件夹选择，请输入目录路径。');
+              const path = await picker.pick(signal);
+              value = path ? await vaults.openDirectory(path) : null;
+            } else value = await vaults.control(payload.vaultId, method, payload);
+            return { ok: true, value };
           } catch (error) {
             return {
               ok: false,
@@ -86,11 +99,13 @@ export function apply(owner: any) {
       schema: { type: 'json' },
       render: (_args: unknown, value: unknown) => [{ type: 'text', text: JSON.stringify(value) }],
     };
-    const scoped = { when: ({ agent }: any) => store.isManagedSession(agent?.session?.id) };
+    const scoped = {
+      when: ({ agent }: any) => Boolean(vaults.storeForSession(agent?.session?.id)),
+    };
     const run = async (method: string, args: unknown, exec: any) => {
       exec.signal?.throwIfAborted();
-      if (!store.isManagedSession(exec.agent?.session?.id))
-        throw Error('此工具仅供知识工作区会话使用。');
+      const store = vaults.storeForSession(exec.agent?.session?.id);
+      if (!store) throw Error('此工具仅供知识工作区会话使用。');
       return store.control(method, args);
     };
     ctx.tools.register(

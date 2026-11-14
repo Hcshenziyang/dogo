@@ -1,7 +1,7 @@
 import { createHash, randomUUID, randomBytes } from 'node:crypto';
 import { constants } from 'node:fs';
 import { lstat, mkdir, open, readFile, readdir, rename, stat, unlink } from 'node:fs/promises';
-import { basename, extname, join } from 'node:path';
+import { basename, dirname, extname, join, posix } from 'node:path';
 
 const MAX_CONTENT = 1024 * 1024;
 const MAX_IMAGE = 10 * 1024 * 1024;
@@ -14,7 +14,7 @@ const imageTypes: Record<string, string> = {
   '.webp': 'image/webp',
 };
 
-function imagePath(value: unknown): string[] {
+function imagePath(value: unknown, documentId?: unknown): string[] {
   if (typeof value !== 'string' || value.length > 1024 || /[\\\0]/.test(value))
     throw Error('图片路径无效。');
   let decoded: string;
@@ -23,7 +23,10 @@ function imagePath(value: unknown): string[] {
   } catch {
     throw Error('图片路径无效。');
   }
-  const parts = decoded.split('/');
+  if (decoded.startsWith('/')) throw Error('图片路径无效。');
+  const base = typeof documentId === 'string' ? posix.dirname(fileId(documentId)) : '.';
+  const combined = posix.normalize(posix.join(base, decoded));
+  const parts = combined.split('/');
   if (
     parts.some(
       (part) =>
@@ -103,11 +106,10 @@ const version = (value: string) => createHash('sha256').update(value, 'utf8').di
 function fileId(value: unknown): string {
   if (
     typeof value !== 'string' ||
-    value.length > 220 ||
+    value.length > 1024 ||
     value.length === 0 ||
-    basename(value) !== value ||
-    value.startsWith('.') ||
-    /[\\/\0]/.test(value) ||
+    /[\\\0]/.test(value) ||
+    value.split('/').some((part) => !part || part.startsWith('.') || part.length > 220) ||
     !['.md', '.canvas'].includes(extname(value))
   ) {
     throw Error('无效的知识库文件名。');
@@ -187,7 +189,7 @@ function parseTasks(doc: DocumentData): Task[] {
   });
 }
 
-/** Owns only this plugin's flat Markdown/JSON Canvas directory, independently of old memos. */
+/** Owns Markdown and JSON Canvas files inside one knowledge directory. */
 export class WorkspaceStore {
   private metadata: Metadata = { activeSession: null, sessions: [], proposals: [] };
   private readonly pageContexts = new Map<string, { owner: string; value: WorkspacePageContext }>();
@@ -197,7 +199,13 @@ export class WorkspaceStore {
     string,
     { type: string; chunks: Buffer[]; size: number; updated: number }
   >();
-  constructor(readonly directory: string) {}
+  readonly metadataDirectory: string;
+  constructor(
+    readonly directory: string,
+    private readonly options: { metadataDirectory?: string; createDefault?: boolean } = {},
+  ) {
+    this.metadataDirectory = options.metadataDirectory || join(directory, '.dogo');
+  }
   private async serial<T>(fn: () => Promise<T>): Promise<T> {
     const work = this.tail.then(fn, fn);
     this.tail = work.catch(() => {});
@@ -219,14 +227,15 @@ export class WorkspaceStore {
       if ((e as NodeJS.ErrnoException).code !== 'ENOENT') throw e;
       existed = false;
     }
-    await mkdir(this.directory, { recursive: true, mode: 0o700 });
-    await mkdir(join(this.directory, '.dogo'), { recursive: true, mode: 0o700 });
-    if (!existed) {
+    if (this.options.createDefault !== false)
+      await mkdir(this.directory, { recursive: true, mode: 0o700 });
+    await mkdir(this.metadataDirectory, { recursive: true, mode: 0o700 });
+    if (!existed && this.options.createDefault !== false) {
       await this.createIfAbsent('欢迎使用.md', seedNote);
       await this.createIfAbsent('工作台.canvas', JSON.stringify(seedCanvas, null, 2) + '\n');
     }
     try {
-      const value = JSON.parse(await readFile(join(this.directory, '.dogo', 'state.json'), 'utf8'));
+      const value = JSON.parse(await readFile(join(this.metadataDirectory, 'state.json'), 'utf8'));
       if (
         !value ||
         !Array.isArray(value.sessions) ||
@@ -274,20 +283,17 @@ export class WorkspaceStore {
     }
   }
   private async saveMetadata(next: Metadata = this.metadata): Promise<void> {
-    await this.atomic(join(this.directory, '.dogo', 'state.json'), JSON.stringify(next));
+    await this.atomic(join(this.metadataDirectory, 'state.json'), JSON.stringify(next));
     this.metadata = next;
   }
   private async readDocument(idValue: unknown): Promise<DocumentData> {
     const id = fileId(idValue);
-    const f = await open(
-      join(this.directory, id),
-      constants.O_RDONLY | (constants.O_NOFOLLOW || 0),
-    );
+    const f = await open(await this.safePath(id), constants.O_RDONLY | (constants.O_NOFOLLOW || 0));
     let content: string;
     try {
       const st = await f.stat();
       if (!st.isFile() || st.size > MAX_CONTENT) throw Error('文件过大或不是普通文件。');
-      content = await f.readFile('utf8');
+      content = new TextDecoder('utf-8', { fatal: true }).decode(await f.readFile());
     } finally {
       await f.close();
     }
@@ -310,7 +316,7 @@ export class WorkspaceStore {
     if (id.endsWith('.canvas')) validateCanvas(content);
     const before = await this.readDocument(id);
     if (before.revision !== expected) throw Error('文件已在其他位置修改，请重新加载后再保存。');
-    const path = join(this.directory, id),
+    const path = await this.safePath(id),
       temp = path + '.' + randomUUID() + '.tmp';
     const f = await open(temp, 'wx', 0o600);
     try {
@@ -338,32 +344,95 @@ export class WorkspaceStore {
       revision: version(content),
     };
   }
-  private async listAll(): Promise<{ documents: Omit<DocumentData, 'content'>[]; tasks: Task[] }> {
-    const entries = await readdir(this.directory, { withFileTypes: true });
+  private async listAll(): Promise<{
+    documents: Omit<DocumentData, 'content'>[];
+    tasks: Task[];
+    skipped: string[];
+  }> {
     const docs: DocumentData[] = [];
-    for (const entry of entries) {
-      if (
-        !entry.isFile() ||
-        entry.name.startsWith('.') ||
-        !['.md', '.canvas'].includes(extname(entry.name))
-      )
-        continue;
-      docs.push(await this.readDocument(entry.name));
-    }
+    const skipped: string[] = [];
+    const walk = async (prefix: string, depth: number): Promise<void> => {
+      let entries;
+      try {
+        entries = await readdir(join(this.directory, prefix), { withFileTypes: true });
+      } catch (error) {
+        if (!prefix) throw error;
+        skipped.push(prefix);
+        return;
+      }
+      for (const entry of entries) {
+        if (entry.name.startsWith('.') || entry.name === 'node_modules') continue;
+        const id = prefix ? prefix + '/' + entry.name : entry.name;
+        if (entry.isDirectory() && depth < 64) await walk(id, depth + 1);
+        else if (entry.isFile() && ['.md', '.canvas'].includes(extname(entry.name))) {
+          try {
+            docs.push(await this.readDocument(id));
+          } catch {
+            skipped.push(id);
+          }
+        }
+      }
+    };
+    await walk('', 0);
     docs.sort((a, b) => a.title.localeCompare(b.title, 'zh-CN'));
     return {
       documents: docs.map(({ content: _content, ...doc }) => doc),
       tasks: docs.flatMap(parseTasks),
+      skipped,
     };
   }
-  private async imageFile(value: unknown): Promise<{ path: string; type: string }> {
-    const parts = imagePath(value);
+  private async safePath(id: string): Promise<string> {
     let path = this.directory;
-    for (const part of parts) {
+    for (const part of id.split('/')) {
       path = join(path, part);
-      if ((await lstat(path)).isSymbolicLink()) throw Error('图片路径不能包含符号链接。');
+      if ((await lstat(path)).isSymbolicLink()) throw Error('路径不能包含符号链接。');
     }
-    return { path, type: imageTypes[extname(path).toLowerCase()]! };
+    return path;
+  }
+  private async imageFile(
+    value: unknown,
+    documentId?: unknown,
+  ): Promise<{ path: string; type: string }> {
+    const locate = async (parts: string[]) => {
+      let path = this.directory;
+      for (const part of parts) {
+        path = join(path, part);
+        if ((await lstat(path)).isSymbolicLink()) throw Error('图片路径不能包含符号链接。');
+      }
+      return { path, type: imageTypes[extname(path).toLowerCase()]! };
+    };
+    try {
+      return await locate(imagePath(value, documentId));
+    } catch (error) {
+      if (!documentId || (error as NodeJS.ErrnoException).code !== 'ENOENT') throw error;
+      try {
+        return await locate(imagePath(value));
+      } catch (rootError) {
+        if (
+          (rootError as NodeJS.ErrnoException).code !== 'ENOENT' ||
+          typeof value !== 'string' ||
+          value.includes('/')
+        )
+          throw rootError;
+        const name = imagePath(value)[0]!;
+        const matches: string[] = [];
+        const find = async (prefix: string, depth: number): Promise<void> => {
+          if (matches.length > 1 || depth > 64) return;
+          for (const entry of await readdir(join(this.directory, prefix), {
+            withFileTypes: true,
+          })) {
+            if (entry.name.startsWith('.') || entry.name === 'node_modules') continue;
+            const id = prefix ? prefix + '/' + entry.name : entry.name;
+            if (entry.isDirectory()) await find(id, depth + 1);
+            else if (entry.isFile() && entry.name === name) matches.push(id);
+          }
+        };
+        await find('', 0);
+        if (matches.length !== 1)
+          throw Error(matches.length ? '存在多个同名图片，请使用相对路径。' : '未找到图片。');
+        return locate(imagePath(matches[0]));
+      }
+    }
   }
   isManagedSession(id: unknown): boolean {
     return typeof id === 'string' && this.metadata.sessions.includes(id);
@@ -385,7 +454,7 @@ export class WorkspaceStore {
     return this.serial(async () => {
       switch (method) {
         case 'image-read': {
-          const { path, type } = await this.imageFile(payload.path);
+          const { path, type } = await this.imageFile(payload.path, payload.documentId);
           const f = await open(path, constants.O_RDONLY | (constants.O_NOFOLLOW || 0));
           try {
             const info = await f.stat();
@@ -518,7 +587,7 @@ export class WorkspaceStore {
         case 'delete': {
           const doc = await this.readDocument(payload.id);
           if (doc.revision !== payload.revision) throw Error('文件已修改，未删除。请重新加载。');
-          await unlink(join(this.directory, doc.id));
+          await unlink(await this.safePath(doc.id));
           return { id: doc.id };
         }
         case 'toggle-task': {

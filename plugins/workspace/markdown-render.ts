@@ -3,14 +3,34 @@ import MarkdownIt from 'markdown-it';
 type Note = { id: string; title: string; kind: string };
 export type WorkspaceNote = Note;
 
-export function resolveNote(target: string, notes: Note[]): Note | undefined {
+export function resolveNote(target: string, notes: Note[], currentId = ''): Note | undefined {
   const name = target.split('#', 1)[0]?.trim().replace(/\.md$/i, '') || '';
   if (!name) return undefined;
   const candidates = notes.filter((note) => note.kind === 'note');
-  return (
-    candidates.find((note) => note.id.toLocaleLowerCase() === (name + '.md').toLocaleLowerCase()) ||
-    candidates.find((note) => note.title.toLocaleLowerCase() === name.toLocaleLowerCase())
+  const normalize = (path: string) => {
+    const parts: string[] = [];
+    for (const part of path.split('/')) {
+      if (!part || part === '.') continue;
+      if (part === '..') {
+        if (!parts.length) return '';
+        parts.pop();
+      } else parts.push(part);
+    }
+    return parts.join('/').toLocaleLowerCase();
+  };
+  const base = currentId.split('/').slice(0, -1).join('/');
+  const local = normalize((base ? base + '/' : '') + name + '.md');
+  const root = normalize(name + '.md');
+  const exact =
+    candidates.find((note) => note.id.toLocaleLowerCase() === local) ||
+    candidates.find((note) => note.id.toLocaleLowerCase() === root);
+  if (exact) return exact;
+  const matches = candidates.filter(
+    (note) =>
+      note.id.split('/').pop()?.replace(/\.md$/i, '').toLocaleLowerCase() ===
+        name.toLocaleLowerCase() || note.title.toLocaleLowerCase() === name.toLocaleLowerCase(),
   );
+  return matches.length === 1 ? matches[0] : undefined;
 }
 
 export const markdownRenderer = new MarkdownIt({ html: false, linkify: false, typographer: false });
