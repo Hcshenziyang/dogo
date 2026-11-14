@@ -18,6 +18,39 @@ afterEach(async () => {
 });
 
 describe('local knowledge workspace', () => {
+  it('accepts canvas files with optional arrays while preserving extension fields', async () => {
+    const { store, root } = await setup();
+    await writeFile(
+      join(root, 'legacy.canvas'),
+      JSON.stringify({
+        nodes: [
+          {
+            id: 'one',
+            type: 'text',
+            x: -3900,
+            y: 13000,
+            width: 300,
+            height: 200,
+            text: 'before',
+            color: '5',
+            styleAttributes: { textAlign: 'center' },
+          },
+        ],
+        customMetadata: { retained: true },
+      }),
+    );
+    const original = await store.control('get', { id: 'legacy.canvas' });
+    const value = JSON.parse(original.content);
+    value.nodes[0].text = 'after';
+    const saved = await store.control('save', {
+      id: original.id,
+      revision: original.revision,
+      content: JSON.stringify(value),
+    });
+    expect(JSON.parse(saved.content)).toEqual(value);
+    expect(JSON.parse(saved.content).nodes[0].styleAttributes).toEqual({ textAlign: 'center' });
+    expect(JSON.parse(saved.content).customMetadata).toEqual({ retained: true });
+  });
   it('tracks the open and manually selected page only for a managed session', async () => {
     const { store } = await setup();
     const note = (await store.control('list')).documents.find((d: any) => d.kind === 'note');

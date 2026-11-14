@@ -131,4 +131,31 @@ describe('knowledge vault selection', () => {
     expect((await vaults.control(selected.id, 'get', { id: 'old.md' })).content).toBe('# 原有笔记');
     expect((await vaults.control(selected.id, 'status', {})).activeSession).toBe('old-session');
   });
+
+  it('lists empty folders and creates notes and canvases in the selected folder safely', async () => {
+    const { home, a, root } = await setup();
+    await mkdir(join(a, 'empty'));
+    await symlink(root, join(a, 'shortcut'));
+    const vaults = new Vaults(home);
+    await vaults.initialize();
+    const vault = await vaults.openDirectory(a);
+    const control = (method: string, payload: any = {}) =>
+      vaults.control(vault.id, method, payload);
+    expect((await control('list')).folders).toEqual(expect.arrayContaining(['folder', 'empty']));
+    expect((await control('list')).folders).not.toContain('shortcut');
+    const folder = await control('create-folder', { directory: 'folder', name: '子目录' });
+    expect(folder.id).toBe('folder/子目录');
+    const note = await control('create', { directory: folder.id, title: '笔记' });
+    const canvas = await control('create-canvas', { directory: folder.id, title: '画布' });
+    expect(note.id).toBe('folder/子目录/笔记.md');
+    expect(canvas.id).toBe('folder/子目录/画布.canvas');
+    expect(await readFile(join(a, note.id), 'utf8')).toContain('# 笔记');
+    await expect(control('create', { directory: '../', title: 'bad' })).rejects.toThrow();
+    await expect(
+      control('create-folder', { directory: 'shortcut', name: 'bad' }),
+    ).rejects.toThrow();
+    await expect(
+      control('create-folder', { directory: 'folder', name: '../bad' }),
+    ).rejects.toThrow();
+  });
 });

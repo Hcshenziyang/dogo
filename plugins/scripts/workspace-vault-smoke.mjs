@@ -55,9 +55,11 @@ try {
     await realpath(await page.locator('.dw-tree-foot').getAttribute('title')),
     await realpath(first),
   );
+  const folder = page.getByRole('button', { name: '文件夹 folder', exact: true });
+  if ((await folder.getAttribute('aria-expanded')) === 'false') await folder.click();
   await page.getByRole('button', { name: 'folder/nested.md' }).click();
   assert((await page.getByLabel('笔记正文').innerText()).includes('nested'));
-  await page.getByRole('button', { name: 'same', exact: true }).click();
+  await page.getByRole('button', { name: 'same.md', exact: true }).click();
   await page.waitForFunction(() =>
     document.querySelector('[aria-label="笔记正文"]')?.textContent?.includes('原始内容'),
   );
@@ -75,7 +77,7 @@ try {
   assert((await read(second)).includes('B 的修改'));
   await picker.getByRole('button', { name: /Vault A/ }).click();
   await page.getByLabel('笔记正文').waitFor();
-  await page.getByRole('button', { name: 'same', exact: true }).click();
+  await page.getByRole('button', { name: 'same.md', exact: true }).click();
   await page.waitForFunction(() =>
     document.querySelector('[aria-label="笔记正文"]')?.textContent?.includes('A 的修改'),
   );

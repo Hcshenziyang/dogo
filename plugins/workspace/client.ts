@@ -1,6 +1,7 @@
 import { createUI } from '../shared/ui.js';
 import { EditorView } from '@codemirror/view';
 import { createMarkdownEditor } from './markdown-editor.js';
+import { createCanvasEditor } from './canvas.js';
 import { markdownRenderer, readImage, resolveNote } from './markdown-render.js';
 import { styles } from './styles.js';
 
@@ -23,6 +24,7 @@ window.__ModuleLoader__.load({
       h = React.createElement;
     const { Icon } = createUI(React);
     const MarkdownEditor = createMarkdownEditor(React);
+    const CanvasEditor = createCanvasEditor(React);
     const PageContext = React.createContext(null);
     const draftKey = (vaultId: string, id: string) =>
       'dogo.workspace.draft.v2:' + vaultId + ':' + id;
@@ -45,14 +47,17 @@ window.__ModuleLoader__.load({
           if (previous?.isConnected && !previous.closest('[inert]')) previous.focus();
         };
       }, []);
-      const isCreate = action.type === 'create';
-      const title = isCreate
-        ? action.kind === 'note'
-          ? '新建笔记'
-          : '新建画布'
-        : action.type === 'delete'
-          ? '删除内容？'
-          : '重新加载？';
+      const isFolder = action.type === 'create-folder';
+      const isCreate = action.type === 'create' || isFolder;
+      const title = isFolder
+        ? '新建文件夹'
+        : isCreate
+          ? action.kind === 'note'
+            ? '新建笔记'
+            : '新建画布'
+          : action.type === 'delete'
+            ? '删除内容？'
+            : '重新加载？';
       const description =
         action.type === 'delete'
           ? '删除「' + action.title + '」后，文件会从本机知识库中移除。'
@@ -128,15 +133,23 @@ window.__ModuleLoader__.load({
                 ? h(
                     'label',
                     { className: 'dw-dialog-field' },
-                    h('span', null, '名称'),
+                    h('span', null, '名称 · 位置：' + (action.directory || '根目录')),
                     h('input', {
                       value: name,
                       onChange: (e: any) => setName(e.target.value),
                       required: true,
                       maxLength: 100,
                       autoComplete: 'off',
-                      placeholder: action.kind === 'note' ? '给笔记起个名字' : '给画布起个名字',
-                      'aria-label': action.kind === 'note' ? '新笔记名称' : '新画布名称',
+                      placeholder: isFolder
+                        ? '文件夹名称'
+                        : action.kind === 'note'
+                          ? '给笔记起个名字'
+                          : '给画布起个名字',
+                      'aria-label': isFolder
+                        ? '新文件夹名称'
+                        : action.kind === 'note'
+                          ? '新笔记名称'
+                          : '新画布名称',
                     }),
                   )
                 : h('p', null, description),
@@ -292,7 +305,9 @@ window.__ModuleLoader__.load({
         [filter, setFilter] = React.useState('open'),
         [sourceMode, setSourceMode] = React.useState(false),
         [reading, setReading] = React.useState(false),
-        [history, setHistory] = React.useState([] as any[]);
+        [history, setHistory] = React.useState([] as any[]),
+        [selectedFolder, setSelectedFolder] = React.useState(''),
+        [expandedFolders, setExpandedFolders] = React.useState(new Set<string>());
       const [selectedPage, setSelectedPage] = React.useState('follow'),
         [syncedContext, setSyncedContext] = React.useState(''),
         [contextError, setContextError] = React.useState(''),
@@ -309,8 +324,7 @@ window.__ModuleLoader__.load({
         [dialogBusy, setDialogBusy] = React.useState(false);
       const [reference, setReference] = React.useState(null as any),
         [starting, setStarting] = React.useState(false);
-      const [connecting, setConnecting] = React.useState('' as string),
-        [taskText, setTaskText] = React.useState('');
+      const [taskText, setTaskText] = React.useState('');
       const draft = React.useRef(null as Draft | null),
         saveTimer = React.useRef(null as any),
         saving = React.useRef(null as Promise<void> | null),
@@ -466,8 +480,8 @@ window.__ModuleLoader__.load({
           const value = await control('get', { id });
           if (navigation.current !== ticket) return;
           install(value);
+          expandToFile(value.id);
           setMode(value.kind);
-          setConnecting('');
           setShowTree(false);
           setError('');
         } finally {
@@ -572,17 +586,26 @@ window.__ModuleLoader__.load({
           if (navigation.current !== ticket) return;
           setMode('tasks');
           setShowTree(false);
-          setConnecting('');
           await refresh();
         } finally {
           if (navigation.current === ticket) setNavigating(false);
         }
       }
-      async function create(kind: 'note' | 'canvas') {
+      function expandToFile(id: string) {
+        const parts = id.split('/').slice(0, -1);
+        const folders: string[] = [];
+        for (let i = 0; i < parts.length; i++) folders.push(parts.slice(0, i + 1).join('/'));
+        if (folders.length) setExpandedFolders((old: Set<string>) => new Set([...old, ...folders]));
+      }
+      async function create(kind: 'note' | 'canvas' | 'folder') {
         await flush();
         setNewName('');
         setDialogError('');
-        setActionDialog({ type: 'create', kind });
+        setActionDialog(
+          kind === 'folder'
+            ? { type: 'create-folder', directory: selectedFolder }
+            : { type: 'create', kind, directory: selectedFolder },
+        );
       }
       async function removeCurrent() {
         await flush();
@@ -617,14 +640,27 @@ window.__ModuleLoader__.load({
         setDialogError('');
         let committed = false;
         try {
-          if (actionDialog.type === 'create') {
+          if (actionDialog.type === 'create-folder') {
+            const folder = await control('create-folder', {
+              directory: actionDialog.directory,
+              name: newName,
+            });
+            committed = true;
+            setSelectedFolder(folder.id);
+            setExpandedFolders(
+              (old: Set<string>) => new Set([...old, folder.id, actionDialog.directory]),
+            );
+            await refresh();
+          } else if (actionDialog.type === 'create') {
             const title = newName.trim();
             if (!title) throw Error('请输入名称。');
             const value = await control(actionDialog.kind === 'note' ? 'create' : 'create-canvas', {
               title,
+              directory: actionDialog.directory,
             });
             committed = true;
             install(value);
+            expandToFile(value.id);
             setMode(actionDialog.kind);
             setShowTree(false);
             await refresh();
@@ -683,68 +719,6 @@ window.__ModuleLoader__.load({
         });
         if (draft.current?.id === result.id) install(result);
         await refresh();
-      }
-      function mutateCanvas(change: (value: any) => void) {
-        const current = draft.current;
-        if (!current || current.kind !== 'canvas') return;
-        let value;
-        try {
-          value = JSON.parse(current.content);
-        } catch {
-          setError('画布文件不是有效的 JSON，请在外部修复后重新加载。');
-          return;
-        }
-        if (!Array.isArray(value.nodes) || !Array.isArray(value.edges)) {
-          setError('画布缺少 nodes 或 edges。');
-          return;
-        }
-        change(value);
-        updateContent(JSON.stringify(value, null, 2) + '\n');
-      }
-      function canvasClick(id: string) {
-        if (!connecting) return;
-        if (connecting === 'pick') {
-          setConnecting(id);
-          return;
-        }
-        if (connecting === id) {
-          setConnecting('');
-          return;
-        }
-        mutateCanvas((value) =>
-          value.edges.push({
-            id: makeId(),
-            fromNode: connecting,
-            fromSide: 'bottom',
-            toNode: id,
-            toSide: 'top',
-          }),
-        );
-        setConnecting('');
-      }
-      function beginDrag(e: any, node: any) {
-        if (e.button !== 0 || connecting || e.target.closest('textarea,button')) return;
-        e.preventDefault();
-        const sx = e.clientX,
-          sy = e.clientY,
-          x = node.x,
-          y = node.y;
-        const move = (event: PointerEvent) =>
-          mutateCanvas((value) => {
-            const n = value.nodes.find((n: any) => n.id === node.id);
-            if (n) {
-              n.x = Math.max(0, Math.round(x + event.clientX - sx));
-              n.y = Math.max(0, Math.round(y + event.clientY - sy));
-            }
-          });
-        const up = () => {
-          window.removeEventListener('pointermove', move);
-          window.removeEventListener('pointerup', up);
-          window.removeEventListener('pointercancel', up);
-        };
-        window.addEventListener('pointermove', move);
-        window.addEventListener('pointerup', up, { once: true });
-        window.addEventListener('pointercancel', up, { once: true });
       }
       async function loadReference(id: string) {
         const ref = sessions.retain(id, { source: 'dogoWorkspace' });
@@ -854,6 +828,7 @@ window.__ModuleLoader__.load({
               const initial = await control('get', { id: first.id });
               if (alive) {
                 install(initial);
+                expandToFile(initial.id);
                 setMode(initial.kind);
               }
             }
@@ -956,18 +931,86 @@ window.__ModuleLoader__.load({
       const matching = documents.filter((x) =>
         (x.title + ' ' + x.id).toLowerCase().includes(search.toLowerCase()),
       );
-      const listButton = (x: Dict) =>
-        h(
-          'button',
-          {
-            key: x.id,
-            type: 'button',
-            className: 'dw-entry ' + (mode === x.kind && doc?.id === x.id ? 'active' : ''),
-            onClick: () => report(openDocument(x.id)),
-          },
-          h(Icon, { name: x.kind === 'note' ? 'note' : 'grid', size: 15, className: 'dw-icon' }),
-          h('span', { title: x.id }, x.id.includes('/') ? x.id : x.title),
+      const folders: string[] = listing.folders || [];
+      const sorted = (items: string[]) =>
+        items.sort((a, b) => a.localeCompare(b, 'zh-CN', { numeric: true }));
+      const renderFolder = (parent: string, depth: number): any[] => {
+        const directFolders = sorted(
+          folders.filter((path) => {
+            const split = path.lastIndexOf('/');
+            return (split < 0 ? '' : path.slice(0, split)) === parent;
+          }),
         );
+        const directDocs = matching
+          .filter((item) => {
+            const split = item.id.lastIndexOf('/');
+            return (split < 0 ? '' : item.id.slice(0, split)) === parent;
+          })
+          .sort((a, b) => a.id.localeCompare(b.id, 'zh-CN', { numeric: true }));
+        const children: any[] = [];
+        for (const path of directFolders) {
+          if (
+            search &&
+            !path.toLowerCase().includes(search.toLowerCase()) &&
+            !matching.some((item) => item.id.startsWith(path + '/'))
+          )
+            continue;
+          const open = !!search || expandedFolders.has(path);
+          const name = path.split('/').pop()!;
+          children.push(
+            h(
+              'button',
+              {
+                key: 'folder:' + path,
+                type: 'button',
+                className: 'dw-entry dw-folder ' + (selectedFolder === path ? 'active' : ''),
+                style: { paddingLeft: 8 + depth * 14 },
+                'aria-expanded': open,
+                'aria-label': '文件夹 ' + path,
+                title: path,
+                onClick: () => {
+                  setSelectedFolder(path);
+                  setExpandedFolders((old: Set<string>) => {
+                    const next = new Set(old);
+                    if (next.has(path)) next.delete(path);
+                    else next.add(path);
+                    return next;
+                  });
+                },
+              },
+              h('span', { className: 'dw-folder-arrow', 'aria-hidden': true }, open ? '▾' : '▸'),
+              h(Icon, { name: 'folder', size: 15, className: 'dw-icon' }),
+              h('span', null, name),
+            ),
+          );
+          if (open) children.push(...renderFolder(path, depth + 1));
+        }
+        for (const item of directDocs) {
+          const filename = item.id.split('/').pop();
+          children.push(
+            h(
+              'button',
+              {
+                key: 'doc:' + item.id,
+                type: 'button',
+                className:
+                  'dw-entry ' + (mode === item.kind && doc?.id === item.id ? 'active' : ''),
+                style: { paddingLeft: 24 + depth * 14 },
+                title: item.id,
+                'aria-label': item.id,
+                onClick: () => report(openDocument(item.id)),
+              },
+              h(Icon, {
+                name: item.kind === 'note' ? 'note' : 'grid',
+                size: 15,
+                className: 'dw-icon',
+              }),
+              h('span', null, item.kind === 'note' ? filename.replace(/\.md$/i, '') : filename),
+            ),
+          );
+        }
+        return children;
+      };
       const tree = h(
         'aside',
         { className: 'dw-tree' },
@@ -977,6 +1020,11 @@ window.__ModuleLoader__.load({
           h('strong', { title: vault.directory }, vault.name),
           h('span', { className: 'dw-spacer' }),
           btn('切换', () => report(flush().then(onSwitchVault)), { title: '切换知识库' }),
+        ),
+        h(
+          'div',
+          { className: 'dw-tree-actions' },
+          btn('+ 文件夹', () => report(create('folder')), { title: '新建文件夹' }),
           btn('+ 笔记', () => report(create('note')), { title: '新建笔记' }),
           btn('+ 画布', () => report(create('canvas')), { title: '新建画布' }),
         ),
@@ -985,13 +1033,23 @@ window.__ModuleLoader__.load({
           { className: 'dw-tree-list' },
           h('input', {
             className: 'dw-search',
-            placeholder: '搜索标题',
+            placeholder: '搜索笔记或路径',
             value: search,
             onChange: (e: any) => setSearch(e.target.value),
             'aria-label': '搜索知识库',
           }),
-          h('div', { className: 'dw-caption' }, '笔记'),
-          ...matching.filter((x) => x.kind === 'note').map(listButton),
+          h(
+            'button',
+            {
+              type: 'button',
+              className: 'dw-entry dw-folder ' + (!selectedFolder ? 'active' : ''),
+              onClick: () => setSelectedFolder(''),
+              'aria-label': '选择根目录',
+            },
+            h(Icon, { name: 'folder', size: 15, className: 'dw-icon' }),
+            h('span', null, '根目录'),
+          ),
+          ...renderFolder('', 0),
           h('div', { className: 'dw-caption' }, '工作视图'),
           h(
             'button',
@@ -1002,7 +1060,6 @@ window.__ModuleLoader__.load({
             h(Icon, { name: 'check', size: 15, className: 'dw-icon' }),
             h('span', null, '待办'),
           ),
-          ...matching.filter((x) => x.kind === 'canvas').map(listButton),
           listing.skipped?.length > 0 &&
             h(
               'p',
@@ -1013,7 +1070,7 @@ window.__ModuleLoader__.load({
         h(
           'div',
           { className: 'dw-tree-foot', title: status?.directory },
-          '本机知识库',
+          '新建位置：' + (selectedFolder || '根目录'),
           h('br'),
           status?.directory || '正在连接…',
         ),
@@ -1140,95 +1197,16 @@ window.__ModuleLoader__.load({
           ),
         );
       } else {
-        let canvas: any;
-        try {
-          canvas = JSON.parse(doc.content);
-        } catch {
-          canvas = { nodes: [], edges: [] };
-        }
-        const nodes = Array.isArray(canvas.nodes) ? canvas.nodes : [],
-          edges = Array.isArray(canvas.edges) ? canvas.edges : [];
-        const lookup = new Map(nodes.map((n: Dict) => [n.id, n]));
-        content = h(
-          React.Fragment,
-          null,
-          h(
-            'div',
-            { className: 'dw-canvas-holder' },
-            h(
-              'div',
-              { className: 'dw-canvas' },
-              h(
-                'svg',
-                { className: 'dw-lines', width: 1100, height: 800 },
-                h(
-                  'defs',
-                  null,
-                  h(
-                    'marker',
-                    {
-                      id: 'dw-arrow',
-                      viewBox: '0 0 10 10',
-                      refX: 8,
-                      refY: 5,
-                      markerWidth: 5,
-                      markerHeight: 5,
-                      orient: 'auto',
-                    },
-                    h('path', { d: 'M 0 0 L 10 5 L 0 10 z', fill: '#a4b9df' }),
-                  ),
-                ),
-                ...edges.map((edge: Dict) => {
-                  const a: any = lookup.get(edge.fromNode),
-                    b: any = lookup.get(edge.toNode);
-                  if (!a || !b) return null;
-                  return h('line', {
-                    key: edge.id,
-                    x1: a.x + a.width / 2,
-                    y1: a.y + a.height,
-                    x2: b.x + b.width / 2,
-                    y2: b.y,
-                    stroke: '#a4b9df',
-                    strokeWidth: 1.4,
-                    markerEnd: 'url(#dw-arrow)',
-                  });
-                }),
-              ),
-              ...nodes.map((node: Dict) =>
-                h(
-                  'div',
-                  {
-                    className: 'dw-node ' + (connecting === node.id ? 'picked' : ''),
-                    key: node.id,
-                    style: { left: node.x, top: node.y, width: node.width, height: node.height },
-                    onPointerDown: (e: any) => beginDrag(e, node),
-                    onClick: () => canvasClick(node.id),
-                  },
-                  h('small', null, node.type === 'text' ? '文本卡片' : node.type),
-                  node.type === 'text'
-                    ? h('textarea', {
-                        value: node.text || '',
-                        onChange: (e: any) =>
-                          mutateCanvas((value) => {
-                            const n = value.nodes.find((x: Dict) => x.id === node.id);
-                            if (n) n.text = e.target.value;
-                          }),
-                        'aria-label': '画布卡片文字',
-                      })
-                    : h('span', null, node.file || node.url || '暂不支持编辑此卡片'),
-                ),
-              ),
-            ),
-          ),
-          h(
-            'div',
-            { className: 'dw-canvas-hint' },
-            connecting
-              ? '依次选择起点和终点；再次点击起点可取消。'
-              : '拖动卡片调整位置，编辑卡片文字。',
-          ),
-        );
+        content = h(CanvasEditor, {
+          key: doc.id,
+          doc,
+          onChange: updateContent,
+          onError: showError,
+          onOpenNote: (target: string) => report(openWiki(target)),
+          control: imageControl,
+        });
       }
+
       const toolbar =
         doc && mode !== 'tasks'
           ? h(
@@ -1239,26 +1217,6 @@ window.__ModuleLoader__.load({
               h('span', null, doc.title),
               h('span', { className: 'dw-spacer' }),
               h('span', null, doc.dirty ? '保存中…' : '已保存'),
-              mode === 'canvas' &&
-                btn('添加节点', () =>
-                  mutateCanvas((value) =>
-                    value.nodes.push({
-                      id: makeId(),
-                      type: 'text',
-                      text: '新想法',
-                      x: 220,
-                      y: 180,
-                      width: 190,
-                      height: 90,
-                    }),
-                  ),
-                ),
-              mode === 'canvas' &&
-                btn(
-                  connecting ? '取消连线' : '连线',
-                  () => setConnecting(connecting ? '' : 'pick'),
-                  { className: connecting ? 'active' : '' },
-                ),
               mode === 'note' && history.length > 0 && btn('返回笔记', () => report(goBack())),
               mode === 'note' &&
                 btn(reading ? '编辑' : '阅读', toggleReading, { title: '切换阅读视图 (⌘E)' }),

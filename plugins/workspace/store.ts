@@ -116,6 +116,29 @@ function fileId(value: unknown): string {
   }
   return value;
 }
+function directoryId(value: unknown): string {
+  if (value === undefined || value === '') return '';
+  if (
+    typeof value !== 'string' ||
+    value.length > 1024 ||
+    /[\\\0]/.test(value) ||
+    value.split('/').some((part) => !part || part.startsWith('.') || part.length > 220)
+  )
+    throw Error('无效的文件夹路径。');
+  return value;
+}
+function directoryName(value: unknown): string {
+  if (
+    typeof value !== 'string' ||
+    !value.trim() ||
+    value !== value.trim() ||
+    value.length > 200 ||
+    value.startsWith('.') ||
+    /[\\/\0\r\n]/.test(value)
+  )
+    throw Error('请输入有效的文件夹名称。');
+  return value;
+}
 function bounded(value: unknown, label: string, max: number): string {
   if (typeof value !== 'string' || Buffer.byteLength(value, 'utf8') > max)
     throw Error(label + '无效或过长。');
@@ -131,13 +154,14 @@ function validateCanvas(content: string): void {
   if (
     !value ||
     typeof value !== 'object' ||
-    !Array.isArray(value.nodes) ||
-    !Array.isArray(value.edges)
+    Array.isArray(value) ||
+    (value.nodes !== undefined && !Array.isArray(value.nodes)) ||
+    (value.edges !== undefined && !Array.isArray(value.edges))
   ) {
-    throw Error('画布必须包含 nodes 和 edges 数组。');
+    throw Error('画布的 nodes 和 edges 必须是数组。');
   }
   const ids = new Set<string>();
-  for (const n of value.nodes) {
+  for (const n of value.nodes || []) {
     if (
       !n ||
       typeof n.id !== 'string' ||
@@ -152,7 +176,7 @@ function validateCanvas(content: string): void {
     ids.add(n.id);
   }
   const edgeIds = new Set<string>();
-  for (const e of value.edges) {
+  for (const e of value.edges || []) {
     if (
       !e ||
       typeof e.id !== 'string' ||
@@ -348,9 +372,11 @@ export class WorkspaceStore {
     documents: Omit<DocumentData, 'content'>[];
     tasks: Task[];
     skipped: string[];
+    folders: string[];
   }> {
     const docs: DocumentData[] = [];
     const skipped: string[] = [];
+    const folders: string[] = [];
     const walk = async (prefix: string, depth: number): Promise<void> => {
       let entries;
       try {
@@ -363,8 +389,10 @@ export class WorkspaceStore {
       for (const entry of entries) {
         if (entry.name.startsWith('.') || entry.name === 'node_modules') continue;
         const id = prefix ? prefix + '/' + entry.name : entry.name;
-        if (entry.isDirectory() && depth < 64) await walk(id, depth + 1);
-        else if (entry.isFile() && ['.md', '.canvas'].includes(extname(entry.name))) {
+        if (entry.isDirectory() && depth < 64) {
+          folders.push(id);
+          await walk(id, depth + 1);
+        } else if (entry.isFile() && ['.md', '.canvas'].includes(extname(entry.name))) {
           try {
             docs.push(await this.readDocument(id));
           } catch {
@@ -379,6 +407,7 @@ export class WorkspaceStore {
       documents: docs.map(({ content: _content, ...doc }) => doc),
       tasks: docs.flatMap(parseTasks),
       skipped,
+      folders,
     };
   }
   private async safePath(id: string): Promise<string> {
@@ -387,6 +416,13 @@ export class WorkspaceStore {
       path = join(path, part);
       if ((await lstat(path)).isSymbolicLink()) throw Error('路径不能包含符号链接。');
     }
+    return path;
+  }
+  private async safeDirectory(value: unknown): Promise<string> {
+    const id = directoryId(value);
+    if (!id) return this.directory;
+    const path = await this.safePath(id);
+    if (!(await lstat(path)).isDirectory()) throw Error('目标位置不是文件夹。');
     return path;
   }
   private async imageFile(
@@ -550,10 +586,18 @@ export class WorkspaceStore {
           return this.listAll();
         case 'get':
           return this.readDocument(payload.id);
+        case 'create-folder': {
+          const parent = directoryId(payload.directory);
+          const name = directoryName(payload.name);
+          await mkdir(join(await this.safeDirectory(parent), name), { mode: 0o700 });
+          return { id: parent ? parent + '/' + name : name };
+        }
         case 'create':
         case 'create-canvas': {
           const title = bounded(payload.title, '标题', 200).trim();
           if (!title || /[\r\n]/.test(title)) throw Error('请输入单行笔记标题。');
+          const parent = directoryId(payload.directory);
+          const parentPath = await this.safeDirectory(parent);
           const clean =
             title
               .replace(/[\\/:*?"<>|\x00-\x1f]/g, '')
@@ -562,9 +606,10 @@ export class WorkspaceStore {
               .slice(0, 80) || '新笔记';
           for (let n = 0; n < 1000; n++) {
             const isCanvas = method === 'create-canvas';
-            const id = clean + (n ? ' ' + (n + 1) : '') + (isCanvas ? '.canvas' : '.md');
+            const name = clean + (n ? ' ' + (n + 1) : '') + (isCanvas ? '.canvas' : '.md');
+            const id = parent ? parent + '/' + name : name;
             try {
-              const f = await open(join(this.directory, id), 'wx', 0o600);
+              const f = await open(join(parentPath, name), 'wx', 0o600);
               try {
                 await f.writeFile(
                   isCanvas
