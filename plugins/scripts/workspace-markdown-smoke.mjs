@@ -63,7 +63,7 @@ try {
   await page.getByLabel('笔记正文').waitFor();
   assert.equal(await realpath(await page.locator('.dw-tree-foot').getAttribute('title')), dir);
   async function create(name) {
-    await page.getByRole('button', { name: '+ 笔记', exact: true }).click();
+    await page.getByRole('button', { name: '新建笔记', exact: true }).click();
     const modal = page.getByRole('dialog', { name: '新建笔记' });
     await modal.getByLabel('新笔记名称').fill(name);
     await modal.getByLabel('新笔记名称').press('Enter');

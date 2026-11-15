@@ -24,7 +24,7 @@ window.__ModuleLoader__.load({
       h = React.createElement;
     const { Icon } = createUI(React);
     const MarkdownEditor = createMarkdownEditor(React);
-    const CanvasEditor = createCanvasEditor(React);
+    const CanvasEditor = createCanvasEditor(React, Icon);
     const PageContext = React.createContext(null);
     const draftKey = (vaultId: string, id: string) =>
       'dogo.workspace.draft.v2:' + vaultId + ':' + id;
@@ -37,6 +37,21 @@ window.__ModuleLoader__.load({
         { type: 'button', className: 'dw-btn ' + (extra.className || ''), ...extra, onClick },
         label,
       );
+    const iconBtn = (label: string, icon: string, onClick: () => void, extra: Dict = {}) => {
+      const { className = '', title = label, ...attributes } = extra;
+      return h(
+        'button',
+        {
+          ...attributes,
+          type: 'button',
+          className: 'dw-btn dw-icon-btn ' + className,
+          title,
+          'aria-label': label,
+          onClick,
+        },
+        h(Icon, { name: icon, size: 17 }),
+      );
+    };
     function ActionDialog({ action, name, setName, busy, error, close, submit }: any) {
       const panel = React.useRef(null as HTMLElement | null);
       React.useEffect(() => {
@@ -1101,14 +1116,14 @@ window.__ModuleLoader__.load({
           { className: 'dw-tree-top' },
           h('strong', { title: vault.directory }, vault.name),
           h('span', { className: 'dw-spacer' }),
-          btn('切换', () => report(flush().then(onSwitchVault)), { title: '切换知识库' }),
+          iconBtn('切换知识库', 'folder-swap', () => report(flush().then(onSwitchVault))),
         ),
         h(
           'div',
           { className: 'dw-tree-actions' },
-          btn('+ 文件夹', () => report(create('folder')), { title: '新建文件夹' }),
-          btn('+ 笔记', () => report(create('note')), { title: '新建笔记' }),
-          btn('+ 画布', () => report(create('canvas')), { title: '新建画布' }),
+          iconBtn('新建文件夹', 'folder-plus', () => report(create('folder'))),
+          iconBtn('新建笔记', 'note-plus', () => report(create('note'))),
+          iconBtn('新建画布', 'grid-plus', () => report(create('canvas'))),
         ),
         h(
           'div',
@@ -1324,22 +1339,40 @@ window.__ModuleLoader__.load({
               h('span', null, ' / '),
               h('span', null, doc.title),
               h('span', { className: 'dw-spacer' }),
-              h('span', null, doc.dirty ? '保存中…' : '已保存'),
-              mode === 'note' && history.length > 0 && btn('返回笔记', () => report(goBack())),
+              h(
+                'span',
+                {
+                  className: 'dw-save-status' + (doc.dirty ? ' saving' : ''),
+                  role: 'status',
+                  'aria-label': doc.dirty ? '保存中…' : '已保存',
+                  title: doc.dirty ? '保存中…' : '已保存',
+                },
+                h(Icon, { name: doc.dirty ? 'refresh' : 'check', size: 16 }),
+              ),
               mode === 'note' &&
-                btn(reading ? '编辑' : '阅读', toggleReading, { title: '切换阅读视图 (⌘E)' }),
+                history.length > 0 &&
+                iconBtn('返回笔记', 'back', () => report(goBack())),
+              mode === 'note' &&
+                iconBtn(reading ? '编辑' : '阅读', reading ? 'edit' : 'eye', toggleReading, {
+                  title: '切换阅读视图 (⌘/Ctrl+E)',
+                }),
               mode === 'note' &&
                 !reading &&
-                btn(sourceMode ? '实时预览' : '源码', () => setSourceMode(!sourceMode)),
-              btn('引用到 AI', () => {
+                iconBtn(sourceMode ? '实时预览' : '源码', sourceMode ? 'preview' : 'code', () =>
+                  setSourceMode(!sourceMode),
+                ),
+              iconBtn('引用到 AI', 'quote', () => {
                 try {
                   quoteCurrent();
                 } catch (e) {
                   showError(e);
                 }
               }),
-              btn('重新加载', () => report(reloadCurrent())),
-              btn('删除', () => report(removeCurrent()), { className: 'danger' }),
+              iconBtn('重新加载', 'refresh', () => report(reloadCurrent())),
+              iconBtn('删除', 'trash', () => report(removeCurrent()), {
+                className: 'danger',
+                title: doc.kind === 'note' ? '删除当前笔记' : '删除当前画布',
+              }),
             )
           : null;
       const ai = h(
@@ -1351,7 +1384,7 @@ window.__ModuleLoader__.load({
           h('div', { className: 'dw-ai-mark' }, h(Icon, { name: 'chat', size: 15 })),
           h('div', null, h('strong', null, 'AI 辅助'), h('small', null, '知识工作区独立会话')),
           h('span', { className: 'dw-spacer' }),
-          btn('关闭', () => setShowAi(false), { title: '收起 AI 面板' }),
+          iconBtn('关闭', 'close', () => setShowAi(false), { title: '收起 AI 面板' }),
         ),
         reference &&
           contextPending &&
@@ -1486,18 +1519,22 @@ window.__ModuleLoader__.load({
         h(
           'header',
           { className: 'dw-head' },
-          btn('目录', () => setShowTree(!showTree), { className: 'dw-head-mobile line' }),
+          iconBtn('目录', 'panel-left', () => setShowTree(!showTree), {
+            className: 'dw-head-mobile',
+            title: '展开或收起目录',
+            'aria-expanded': showTree,
+          }),
           h('span', { className: 'dw-dim' }, '知识工作区 /'),
           h('strong', null, mode === 'tasks' ? '待办' : doc?.title || '我的知识库'),
           h('span', { className: 'dw-spacer' }),
-          btn(showAi ? '收起 AI' : '展开 AI', () => setShowAi(!showAi), {
-            className: 'line',
+          iconBtn(showAi ? '收起 AI' : '展开 AI', 'chat', () => setShowAi(!showAi), {
+            className: showAi ? 'active' : '',
             'aria-expanded': showAi,
             'aria-controls': 'dogo-workspace-ai',
           }),
-          btn('返回项目会话', () => report(flush().then(() => layout.selectPanel(null))), {
-            className: 'line',
-          }),
+          iconBtn('返回项目会话', 'back', () =>
+            report(flush().then(() => layout.selectPanel(null))),
+          ),
         ),
         (error || notice) &&
           h(

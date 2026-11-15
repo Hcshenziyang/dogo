@@ -105,7 +105,7 @@ function isEditable(target: EventTarget | null) {
 const emptySelection = (): Selection => ({ nodes: [], edge: null });
 const makeId = () => globalThis.crypto?.randomUUID?.() || Math.random().toString(36).slice(2);
 
-export function createCanvasEditor(React: any) {
+export function createCanvasEditor(React: any, Icon: any) {
   const h = React.createElement;
   function CanvasImage({ path, control }: any) {
     const [src, setSrc] = React.useState('');
@@ -250,12 +250,12 @@ export function createCanvasEditor(React: any) {
       h(
         'div',
         { className: 'dw-canvas-node-head', title: '拖动节点' },
-        h(
-          'span',
-          null,
-          { text: '文本', group: '分组', file: '文件', link: '链接' }[node.type as string] ||
-            node.type,
-        ),
+        h(Icon, {
+          name:
+            { text: 'text', group: 'group', file: 'note', link: 'link' }[node.type as string] ||
+            'note',
+          size: 14,
+        }),
         isGroup &&
           h('input', {
             value: node.label || '',
@@ -307,24 +307,31 @@ export function createCanvasEditor(React: any) {
             h(CanvasImage, { path: node.file, control }),
           /\.md$/i.test(node.file || '') &&
             h(CanvasNote, { path: node.file, control: vaultControl }),
-          h('input', {
-            value: node.file || '',
-            placeholder: '知识库内文件路径',
-            'aria-label': '画布文件路径',
-            onChange: (e: any) => change('file', e.target.value),
-          }),
-          /\.md$/i.test(node.file || '') &&
-            h(
-              'button',
-              {
-                type: 'button',
-                onClick: (e: any) => {
-                  e.stopPropagation();
-                  onOpenNote(node.file);
+          h(
+            'div',
+            { className: 'dw-canvas-file-footer' },
+            h('input', {
+              value: node.file || '',
+              placeholder: '知识库内文件路径',
+              'aria-label': '画布文件路径',
+              onChange: (e: any) => change('file', e.target.value),
+            }),
+            /\.md$/i.test(node.file || '') &&
+              h(
+                'button',
+                {
+                  type: 'button',
+                  className: 'dw-canvas-open-note',
+                  title: '打开笔记',
+                  'aria-label': '打开笔记',
+                  onClick: (e: any) => {
+                    e.stopPropagation();
+                    onOpenNote(node.file);
+                  },
                 },
-              },
-              '打开笔记',
-            ),
+                h(Icon, { name: 'open', size: 15 }),
+              ),
+          ),
         ),
       node.type === 'link' &&
         h('input', {
@@ -869,7 +876,8 @@ export function createCanvasEditor(React: any) {
       setConfirmDelete(false);
     }
     function keyboard(event: any) {
-      if (isEditable(event.target)) return;
+      if (isEditable(event.target) || event.target.closest('button,select,a,[role="button"]'))
+        return;
       if (event.code === 'Space' && !event.metaKey && !event.ctrlKey && !event.altKey) {
         event.preventDefault();
         spaceRef.current = true;
@@ -949,6 +957,28 @@ export function createCanvasEditor(React: any) {
         { type: 'button', className: 'dw-btn line', onClick: click, disabled, title },
         label,
       );
+    const iconButton = (
+      label: string,
+      icon: string,
+      click: () => void,
+      disabled = false,
+      shortcut = '',
+      pressed?: boolean,
+    ) =>
+      h(
+        'button',
+        {
+          type: 'button',
+          className: 'dw-btn dw-icon-btn' + (pressed ? ' active' : ''),
+          onClick: click,
+          disabled,
+          title: label + (shortcut ? ' (' + shortcut + ')' : ''),
+          'aria-label': label,
+          ...(pressed === undefined ? {} : { 'aria-pressed': pressed }),
+        },
+        h(Icon, { name: icon, size: 17 }),
+      );
+    const divider = () => h('span', { className: 'dw-toolbar-divider', 'aria-hidden': true });
     const nodeHandlers = React.useRef(null as any);
     nodeHandlers.current = {
       drag,
@@ -983,29 +1013,46 @@ export function createCanvasEditor(React: any) {
       { ref: root, className: 'dw-canvas-editor', onKeyDown: keyboard },
       h(
         'div',
-        { className: 'dw-canvas-controls' },
-        button('添加文本', () => add('text'), !!parsed.error),
-        button('添加分组', () => add('group'), !!parsed.error),
-        button('添加文件', () => add('file'), !!parsed.error),
-        button('添加链接', () => add('link'), !!parsed.error),
-        button(
+        { className: 'dw-canvas-controls', role: 'group', 'aria-label': '画布工具' },
+        iconButton('添加文本', 'text-plus', () => add('text'), !!parsed.error),
+        iconButton('添加分组', 'group-plus', () => add('group'), !!parsed.error),
+        iconButton('添加文件', 'note-plus', () => add('file'), !!parsed.error),
+        iconButton('添加链接', 'link-plus', () => add('link'), !!parsed.error),
+        divider(),
+        iconButton(
           connecting !== null ? '取消连线' : '连线',
+          connecting !== null ? 'close' : 'connect',
           () => setConnecting(connecting === null ? '' : null),
           !!parsed.error,
+          '',
+          connecting !== null,
         ),
-        button(
+        iconButton(
           '删除选中项',
+          'trash',
           () => setConfirmDelete(true),
           !selection.nodes.length && !selection.edge,
         ),
-        button('撤销', () => undo(), !history.current.undo.length, '⌘/Ctrl+Z'),
-        button('重做', () => undo(true), !history.current.redo.length, '⌘/Ctrl+Shift+Z'),
-        h('span', { className: 'dw-spacer' }),
-        button('缩小', () => zoom(1 / 1.3)),
+        iconButton('撤销', 'undo', () => undo(), !history.current.undo.length, '⌘/Ctrl+Z'),
+        iconButton(
+          '重做',
+          'redo',
+          () => undo(true),
+          !history.current.redo.length,
+          '⌘/Ctrl+Shift+Z',
+        ),
+        divider(),
+        iconButton('缩小', 'zoom-out', () => zoom(1 / 1.3)),
         h('span', { className: 'dw-canvas-scale' }, Math.round(view.scale * 100) + '%'),
-        button('放大', () => zoom(1.3)),
-        button('适合画布', () => fit(), false, 'Shift+1'),
-        button('适合选中', () => fit(true), !selection.nodes.length, 'Shift+2'),
+        iconButton('放大', 'zoom-in', () => zoom(1.3)),
+        iconButton('适合画布', 'fit', () => fit(), false, 'Shift+1'),
+        iconButton(
+          '适合选中',
+          'fit-selection',
+          () => fit(true),
+          !selection.nodes.length,
+          'Shift+2',
+        ),
       ),
       selectedEdge &&
         h(

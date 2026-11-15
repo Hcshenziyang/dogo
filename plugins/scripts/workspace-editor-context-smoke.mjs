@@ -90,7 +90,7 @@ try {
     await realpath(await page.locator('.dw-tree-foot').getAttribute('title')),
     join(realHome, 'dogo', 'knowledge'),
   );
-  await page.getByRole('button', { name: '+ 笔记', exact: true }).click();
+  await page.getByRole('button', { name: '新建笔记', exact: true }).click();
   const create = page.getByRole('dialog', { name: '新建笔记' });
   await create.getByLabel('新笔记名称').fill(noteName);
   await create.getByLabel('新笔记名称').press('Enter');

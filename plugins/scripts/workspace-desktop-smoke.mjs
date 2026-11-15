@@ -66,11 +66,11 @@ try {
   await page.getByText('知识工作区', { exact: true }).first().click();
   await page.getByLabel('笔记正文').waitFor();
   const shownDirectory = await page.locator('.dw-tree-foot').getAttribute('title');
-  if (shownDirectory !== root)
+  if (!shownDirectory || (await realpath(shownDirectory)) !== (await realpath(root)))
     throw Error('The connected workspace does not belong to EVAL_DSH_HOME.');
   for (const [label, dialogName, inputName, title, file] of [
-    ['+ 笔记', '新建笔记', '新笔记名称', note, join(root, note + '.md')],
-    ['+ 画布', '新建画布', '新画布名称', canvas, join(root, canvas + '.canvas')],
+    ['新建笔记', '新建笔记', '新笔记名称', note, join(root, note + '.md')],
+    ['新建画布', '新建画布', '新画布名称', canvas, join(root, canvas + '.canvas')],
   ]) {
     await page.getByRole('button', { name: label, exact: true }).click();
     const dialog = page.getByRole('dialog', { name: dialogName });
@@ -101,7 +101,7 @@ try {
   );
   await confirmDelete();
   assert.equal(await exists(join(root, note + '.md')), false);
-  const opener = page.getByRole('button', { name: '+ 笔记', exact: true });
+  const opener = page.getByRole('button', { name: '新建笔记', exact: true });
   await opener.click();
   const cancelDialog = page.getByRole('dialog', { name: '新建笔记' });
   await cancelDialog.waitFor();

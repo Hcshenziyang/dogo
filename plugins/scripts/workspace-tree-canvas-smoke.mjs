@@ -132,12 +132,12 @@ try {
   if ((await folder2.getAttribute('aria-expanded')) === 'false') await folder2.click();
   await page.getByRole('button', { name: '一级/二级/笔记.md' }).waitFor();
   await page.getByRole('button', { name: '文件夹 空目录' }).click();
-  await page.getByRole('button', { name: '+ 文件夹' }).click();
+  await page.getByRole('button', { name: '新建文件夹' }).click();
   let modal = page.getByRole('dialog', { name: '新建文件夹' });
   await modal.getByLabel('新文件夹名称').fill('子文件夹');
   await modal.getByLabel('新文件夹名称').press('Enter');
   await modal.waitFor({ state: 'hidden' });
-  await page.getByRole('button', { name: '+ 笔记' }).click();
+  await page.getByRole('button', { name: '新建笔记' }).click();
   modal = page.getByRole('dialog', { name: '新建笔记' });
   await modal.getByLabel('新笔记名称').fill('新建笔记');
   await modal.getByLabel('新笔记名称').press('Enter');
@@ -282,6 +282,10 @@ try {
   data = await saved((item) => item.edges.length === 1);
   assert.equal(data.edges[0].id, 'edge');
   await page.reload();
+  const startDialog = page.getByRole('dialog').filter({ hasText: '开始使用' });
+  await startDialog.waitFor({ state: 'visible', timeout: 2000 }).catch(() => {});
+  if (await startDialog.isVisible())
+    await startDialog.getByRole('button', { name: '关闭' }).click();
   await page.getByText('知识工作区', { exact: true }).first().click();
   await page.getByLabel('笔记正文').waitFor();
   assert.deepEqual(errors, []);

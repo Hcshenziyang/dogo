@@ -130,6 +130,12 @@ try {
   await picker.getByRole('button', { name: '打开', exact: true }).click();
   await page.getByLabel('笔记正文').waitFor();
   const tree = page.locator('.dw-tree');
+  for (const label of ['新建文件夹', '新建笔记', '新建画布']) {
+    const action = tree.getByRole('button', { name: label, exact: true });
+    assert.equal(await action.getAttribute('title'), label);
+    assert.equal(await action.locator('svg[aria-hidden="true"]').count(), 1);
+    assert.equal((await action.innerText()).trim(), '');
+  }
   const separator = page.getByRole('separator', { name: '调整目录宽度' });
   const beforeWidth = (await tree.boundingBox()).width;
   let r = await separator.boundingBox();
@@ -145,10 +151,40 @@ try {
   await page.getByRole('button', { name: 'canvas.canvas' }).click();
   const surface = page.getByLabel('画布', { exact: true });
   await surface.waitFor();
+  const canvasTools = page.getByRole('group', { name: '画布工具' });
+  for (const label of [
+    '添加文本',
+    '添加分组',
+    '添加文件',
+    '添加链接',
+    '连线',
+    '删除选中项',
+    '撤销',
+    '重做',
+    '缩小',
+    '放大',
+    '适合画布',
+    '适合选中',
+  ]) {
+    const action = canvasTools.getByRole('button', { name: label, exact: true });
+    assert((await action.getAttribute('title')).startsWith(label));
+    assert.equal(await action.locator('svg[aria-hidden="true"]').count(), 1);
+    assert.equal((await action.innerText()).trim(), '');
+  }
+  const initialScale = (await transform()).scale;
+  await canvasTools.getByRole('button', { name: '缩小', exact: true }).focus();
+  await page.keyboard.press('Space');
+  assert((await transform()).scale < initialScale, 'icon button should respond to keyboard');
+  await canvasTools.getByRole('button', { name: '适合画布' }).click();
   await page.getByLabel('画布笔记预览').getByText('合成笔记').waitFor();
   await page.waitForFunction(
     () => document.querySelector('.dw-canvas-note-preview img')?.naturalWidth === 1,
   );
+  const openNote = page.locator('[data-node-id="note"]').getByRole('button', { name: '打开笔记' });
+  assert.equal(await openNote.getAttribute('title'), '打开笔记');
+  assert.equal(await openNote.locator('svg[aria-hidden="true"]').count(), 1);
+  assert.equal((await openNote.innerText()).trim(), '');
+  if (process.env.EVAL_SCREENSHOT) await page.screenshot({ path: process.env.EVAL_SCREENSHOT });
   // Double-click empty space creates and focuses a card at the pointer; double-clicking a card only edits it.
   let initialSurface = await surface.boundingBox();
   const createX = initialSurface.x + 15,
@@ -401,14 +437,28 @@ try {
   assert.equal(data.custom.external, 'new external revision');
   assert.equal(data.nodes.length, 6);
   assert.deepEqual(data.custom.keep, true);
-  // Preference survives reload and narrow viewport leaves space for the main panel.
+  // The icon toolbar stays inside a narrower canvas and remains keyboard usable.
+  await page.setViewportSize({ width: 1000, height: 800 });
+  assert((await page.locator('.dw-main').boundingBox()).width >= 230);
+  const toolBounds = await canvasTools.boundingBox();
+  const canvasBounds = await surface.boundingBox();
+  assert(
+    toolBounds.x >= canvasBounds.x &&
+      toolBounds.x + toolBounds.width <= canvasBounds.x + canvasBounds.width + 1,
+  );
+  await canvasTools.getByRole('button', { name: '适合画布', exact: true }).focus();
+  await page.keyboard.press('Enter');
+  // Preferences survive reload at the original viewport size.
+  await page.setViewportSize({ width: 1440, height: 1000 });
   await page.reload();
+  const startDialog = page.getByRole('dialog').filter({ hasText: '开始使用' });
+  await startDialog.waitFor({ state: 'visible', timeout: 2000 }).catch(() => {});
+  if (await startDialog.isVisible())
+    await startDialog.getByRole('button', { name: '关闭' }).click();
   await page.getByText('知识工作区', { exact: true }).first().click();
   await page.getByLabel('笔记正文').waitFor();
   assert(Math.abs((await tree.boundingBox()).width - wide) < 2);
   assert(await page.getByRole('button', { name: '展开 AI' }).isVisible());
-  await page.setViewportSize({ width: 1000, height: 800 });
-  assert((await page.locator('.dw-main').boundingBox()).width >= 230);
   assert.deepEqual(errors, []);
   console.log(
     'PASS: sidebar width and AI persistence, note preview and relative image, canvas gestures, selection, history, links, tree drop, viewport restoration and external conflict safety.',
