@@ -124,6 +124,8 @@ try {
   await page.getByRole('button', { name: '实时预览', exact: true }).click();
   assert.equal(await page.locator('.dw-md-checkbox').count(), 1);
 
+  if (await page.getByRole('button', { name: '展开 AI' }).count())
+    await page.getByRole('button', { name: '展开 AI' }).click();
   if (await page.getByRole('button', { name: '开启 AI 对话' }).count())
     await page.getByRole('button', { name: '开启 AI 对话' }).click();
   const picker = page.getByLabel('AI 参考页面');

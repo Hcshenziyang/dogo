@@ -317,7 +317,18 @@ window.__ModuleLoader__.load({
         [notice, setNotice] = React.useState('');
       const [review, setReview] = React.useState(null as Dict | null),
         [showTree, setShowTree] = React.useState(false),
-        [showAi, setShowAi] = React.useState(false);
+        [showAi, setShowAi] = React.useState(() => {
+          try {
+            return localStorage.getItem('dogo-workspace-ai-open') === 'true';
+          } catch {
+            return false;
+          }
+        });
+      React.useEffect(() => {
+        try {
+          localStorage.setItem('dogo-workspace-ai-open', String(showAi));
+        } catch {}
+      }, [showAi]);
       const [actionDialog, setActionDialog] = React.useState(null as Dict | null),
         [newName, setNewName] = React.useState(''),
         [dialogError, setDialogError] = React.useState(''),
@@ -325,6 +336,68 @@ window.__ModuleLoader__.load({
       const [reference, setReference] = React.useState(null as any),
         [starting, setStarting] = React.useState(false);
       const [taskText, setTaskText] = React.useState('');
+      const [treeWidth, setTreeWidth] = React.useState(() => {
+        try {
+          const width = Number(localStorage.getItem('dogo-workspace-tree-width'));
+          return Number.isFinite(width) && width >= 160 ? Math.min(480, width) : 206;
+        } catch {
+          return 206;
+        }
+      });
+      const body = React.useRef(null as HTMLDivElement | null);
+      const treeResizeCleanup = React.useRef(null as null | (() => void));
+      const canvasViews = React.useRef(new Map<string, { x: number; y: number; scale: number }>());
+      const canvasGeneration = React.useRef(0);
+      React.useEffect(() => () => treeResizeCleanup.current?.(), []);
+      function treeMaxWidth() {
+        const width = body.current?.clientWidth || 1000;
+        return Math.max(
+          160,
+          Math.min(
+            480,
+            width < 650 ? width * 0.85 : width - (showAi ? (width <= 820 ? 280 : 320) : 0) - 240,
+          ),
+        );
+      }
+      function resizeTree(event: any) {
+        if (event.button !== 0) return;
+        event.preventDefault();
+        treeResizeCleanup.current?.();
+        const startX = event.clientX;
+        const startWidth = (
+          event.currentTarget.parentElement as HTMLElement
+        ).getBoundingClientRect().width;
+        let nextWidth = startWidth;
+        const move = (next: PointerEvent) => {
+          if (next.pointerId !== event.pointerId) return;
+          nextWidth = Math.round(
+            Math.max(160, Math.min(treeMaxWidth(), startWidth + next.clientX - startX)),
+          );
+          setTreeWidth(nextWidth);
+        };
+        const cleanup = () => {
+          window.removeEventListener('pointermove', move);
+          window.removeEventListener('pointerup', end);
+          window.removeEventListener('pointercancel', cancel);
+          treeResizeCleanup.current = null;
+        };
+        const end = (next: PointerEvent) => {
+          if (next.pointerId !== event.pointerId) return;
+          cleanup();
+          try {
+            localStorage.setItem('dogo-workspace-tree-width', String(nextWidth));
+          } catch {}
+        };
+        const cancel = (next?: PointerEvent) => {
+          if (next && next.pointerId !== event.pointerId) return;
+          cleanup();
+          setTreeWidth(startWidth);
+        };
+        treeResizeCleanup.current = cancel;
+        window.addEventListener('pointermove', move);
+        window.addEventListener('pointerup', end);
+        window.addEventListener('pointercancel', cancel);
+      }
       const draft = React.useRef(null as Draft | null),
         saveTimer = React.useRef(null as any),
         saving = React.useRef(null as Promise<void> | null),
@@ -380,6 +453,7 @@ window.__ModuleLoader__.load({
         } catch {}
       }
       function install(value: Dict) {
+        canvasGeneration.current++;
         let current: Draft = {
           ...value,
           id: value.id,
@@ -497,10 +571,12 @@ window.__ModuleLoader__.load({
           scrollTop: contentScroll.current?.scrollTop || 0,
         };
       }
-      async function openWiki(target: string) {
-        const note = target.startsWith('#')
-          ? listing.documents.find((item: Dict) => item.id === draft.current?.id)
-          : resolveNote(target, listing.documents, draft.current?.id);
+      async function openWiki(target: string, exactFile = false) {
+        const note = exactFile
+          ? listing.documents.find((item: Dict) => item.kind === 'note' && item.id === target)
+          : target.startsWith('#')
+            ? listing.documents.find((item: Dict) => item.id === draft.current?.id)
+            : resolveNote(target, listing.documents, draft.current?.id);
         if (!note) throw Error('未找到笔记：' + target);
         const current = savePosition();
         await openDocument(note.id);
@@ -998,6 +1074,12 @@ window.__ModuleLoader__.load({
                 style: { paddingLeft: 24 + depth * 14 },
                 title: item.id,
                 'aria-label': item.id,
+                draggable: item.kind === 'note',
+                onDragStart: (event: any) => {
+                  if (item.kind !== 'note') return;
+                  event.dataTransfer.setData('application/x-dogo-workspace-note', item.id);
+                  event.dataTransfer.effectAllowed = 'copy';
+                },
                 onClick: () => report(openDocument(item.id)),
               },
               h(Icon, {
@@ -1013,7 +1095,7 @@ window.__ModuleLoader__.load({
       };
       const tree = h(
         'aside',
-        { className: 'dw-tree' },
+        { className: 'dw-tree', style: { '--dw-tree-width': treeWidth + 'px' } },
         h(
           'div',
           { className: 'dw-tree-top' },
@@ -1074,6 +1156,29 @@ window.__ModuleLoader__.load({
           h('br'),
           status?.directory || '正在连接…',
         ),
+        h('div', {
+          className: 'dw-tree-resize',
+          role: 'separator',
+          tabIndex: 0,
+          'aria-label': '调整目录宽度',
+          'aria-orientation': 'vertical',
+          'aria-valuemin': 160,
+          'aria-valuemax': Math.round(treeMaxWidth()),
+          'aria-valuenow': Math.round(Math.min(treeWidth, treeMaxWidth())),
+          onPointerDown: resizeTree,
+          onKeyDown: (event: any) => {
+            if (event.key !== 'ArrowLeft' && event.key !== 'ArrowRight') return;
+            event.preventDefault();
+            const next = Math.max(
+              160,
+              Math.min(treeMaxWidth(), treeWidth + (event.key === 'ArrowLeft' ? -10 : 10)),
+            );
+            setTreeWidth(next);
+            try {
+              localStorage.setItem('dogo-workspace-tree-width', String(next));
+            } catch {}
+          },
+        }),
       );
       let content: any = null;
       if (mode === 'tasks') {
@@ -1198,12 +1303,15 @@ window.__ModuleLoader__.load({
         );
       } else {
         content = h(CanvasEditor, {
-          key: doc.id,
+          key: doc.id + ':' + canvasGeneration.current,
           doc,
           onChange: updateContent,
           onError: showError,
-          onOpenNote: (target: string) => report(openWiki(target)),
+          onOpenNote: (target: string) => report(openWiki(target, true)),
           control: imageControl,
+          vaultControl: control,
+          documents,
+          views: canvasViews.current,
         });
       }
 
@@ -1236,14 +1344,14 @@ window.__ModuleLoader__.load({
           : null;
       const ai = h(
         'aside',
-        { className: 'dw-ai' },
+        { className: 'dw-ai', id: 'dogo-workspace-ai' },
         h(
           'div',
           { className: 'dw-ai-head' },
           h('div', { className: 'dw-ai-mark' }, h(Icon, { name: 'chat', size: 15 })),
           h('div', null, h('strong', null, 'AI 辅助'), h('small', null, '知识工作区独立会话')),
           h('span', { className: 'dw-spacer' }),
-          btn('关闭', () => setShowAi(false), { className: 'dw-head-mobile' }),
+          btn('关闭', () => setShowAi(false), { title: '收起 AI 面板' }),
         ),
         reference &&
           contextPending &&
@@ -1382,7 +1490,11 @@ window.__ModuleLoader__.load({
           h('span', { className: 'dw-dim' }, '知识工作区 /'),
           h('strong', null, mode === 'tasks' ? '待办' : doc?.title || '我的知识库'),
           h('span', { className: 'dw-spacer' }),
-          btn('AI 辅助', () => setShowAi(!showAi), { className: 'dw-head-mobile line' }),
+          btn(showAi ? '收起 AI' : '展开 AI', () => setShowAi(!showAi), {
+            className: 'line',
+            'aria-expanded': showAi,
+            'aria-controls': 'dogo-workspace-ai',
+          }),
           btn('返回项目会话', () => report(flush().then(() => layout.selectPanel(null))), {
             className: 'line',
           }),
@@ -1399,7 +1511,7 @@ window.__ModuleLoader__.load({
           ),
         h(
           'div',
-          { className: 'dw-body' },
+          { className: 'dw-body', ref: body },
           tree,
           h('main', { className: 'dw-main' }, toolbar, content),
           ai,

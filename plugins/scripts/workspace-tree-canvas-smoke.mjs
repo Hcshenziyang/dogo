@@ -193,8 +193,8 @@ try {
   await page.keyboard.up(process.platform === 'darwin' ? 'Meta' : 'Control');
   await page.waitForTimeout(200);
   await centerNode(firstNode);
-  const header = firstNode.locator('.dw-canvas-node-head');
-  box = await header.boundingBox();
+  const cardBody = firstNode.locator('.dw-canvas-markdown');
+  box = await cardBody.boundingBox();
   await page.mouse.move(box.x + 15, box.y + 10);
   await page.mouse.down();
   await page.mouse.move(box.x + 70, box.y + 30, { steps: 5 });
@@ -241,8 +241,8 @@ try {
 
   // Resize, create a second connection and create/delete a node through the UI.
   await centerNode(firstNode);
-  await firstNode.locator('.dw-canvas-node-head').click();
-  const resize = firstNode.getByLabel('调整节点大小');
+  await firstNode.locator('.dw-canvas-markdown').click();
+  const resize = firstNode.getByLabel('调整节点大小', { exact: true });
   box = await resize.boundingBox();
   await page.mouse.move(box.x + box.width / 2, box.y + box.height / 2);
   await page.mouse.down();
@@ -250,9 +250,9 @@ try {
   await page.mouse.up();
   data = await saved((item) => item.nodes.find((n) => n.id === 'first')?.width > 240);
   await page.getByRole('button', { name: '连线', exact: true }).click();
-  await firstNode.locator('.dw-canvas-node-head').click();
+  await firstNode.locator('.dw-canvas-markdown').click();
   await centerNode(fileNode);
-  await fileNode.locator('.dw-canvas-node-head').click();
+  await fileNode.locator('.dw-canvas-image').click();
   data = await saved((item) => item.edges.length === 2);
   assert.equal(data.edges[1].fromNode, 'first');
   assert.equal(data.edges[1].toNode, 'file');

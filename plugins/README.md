@@ -18,7 +18,7 @@ pnpm test
 pnpm run pack
 ```
 
-产物为 `release/dogo-devices-0.2.13.tgz` 和 `release/dogo-workspace-0.1.10.tgz`。使用 DSH 自带插件管理器安装到目标 profile；桌面端更新后须完整重启 DSH，才能载入新的后台模块。设备远程访问需要 Python 服务；当前 Rust 服务不提供在线会话中转。
+产物为 `release/dogo-devices-0.2.13.tgz` 和 `release/dogo-workspace-0.1.11.tgz`。使用 DSH 自带插件管理器安装到目标 profile；桌面端更新后须完整重启 DSH，才能载入新的后台模块。设备远程访问需要 Python 服务；当前 Rust 服务不提供在线会话中转。
 
 测试需使用独立的 `DSH_HOME` 和合成账户，避免操作个人 profile。一个 `DSH_HOME` 只允许运行一个 DogO 插件宿主。公网服务需 HTTPS/WSS；HTTP 仅允许回环地址。
 
@@ -30,9 +30,11 @@ pnpm run pack
 
 可粘贴 PNG、JPEG、GIF、WebP 图片，附件以独立文件保存到 `knowledge/attachments/`，每张最大 10 MiB。支持显示知识目录内相对路径的图片及 `![[图片路径]]`，可查找唯一同名图片，图片路径不能越出知识目录或经过符号链接。实时预览的表格可直接修改单元格、Tab 切换，以及通过右键菜单插入或删除行列；也可切换源码编辑。混合换行的文件在编辑后可能统一为 LF。
 
-目录树按文件夹分层，可展开、折叠并选择目标文件夹，在其中新建文件夹、笔记或画布。还支持删除、标题搜索和笔记待办汇总。反向链接、重命名时更新链接、附件管理、公式、Mermaid 和跨设备同步尚未实现。默认示例可自行删除。
+目录树按文件夹分层，可展开、折叠并选择目标文件夹，在其中新建文件夹、笔记或画布；也可将树中的笔记拖入画布，创建指向原笔记的文件卡片。侧栏宽度可拖动分隔条调整，AI 面板可展开或收起，偏好保存在本机浏览器存储中。还支持删除、标题搜索和笔记待办汇总。文件及目录移动、重命名、引用联动、反向链接、附件管理、公式、Mermaid 和跨设备同步尚未实现。默认示例可自行删除。
 
-画布支持文本、分组、文件和链接节点的添加、编辑、拖动及调整大小，分组拖动时会带动内部节点；连线可以添加或删除。拖动空白处或滚轮可平移，按住 Cmd/Ctrl 滚轮可缩放，「适合画布」显示全部节点。图片文件节点可预览，Markdown 文件节点可打开笔记。连线暂以直线显示；未实现 Obsidian 全部专有样式和笔记正文嵌入，未识别的画布扩展字段会在编辑时保留。
+画布可双击空白创建文本卡，拖动卡片主体或框选、Shift 多选后一起移动；分组移动带动内部节点，节点可从四边及四角调整大小。按空格或鼠标中键拖动画布，滚轮平移、Shift 滚轮横向平移，Cmd/Ctrl 或空格加滚轮以指针为中心缩放；Shift+1 适合全部节点，Shift+2 适合选中节点。可从节点边缘拖出连线，选择连线后编辑标签和箭头；Delete 删除选中项，Cmd/Ctrl+Z 及 Cmd/Ctrl+Shift+Z 撤销、重做。画布撤销历史仅在当前打开期间保留，重新加载或切换文件会清空；切换文件时会保留本次面板打开期间的画布视图位置。
+
+图片文件节点可预览，Markdown 文件节点提供只读正文及本地图片预览，可打开原笔记编辑；文件卡路径按知识库根目录匹配。连线以曲线显示；尚未实现全部 Obsidian 样式和嵌入式笔记编辑，未识别的画布扩展字段在编辑时保留。移动及重命名涉及未保存草稿、待处理建议、无覆盖写入和引用更新，本版未提供这些操作。
 
 知识工作区会话的工具执行仅允许读取知识文件和提交建议；建议单独保存，必须在界面预览并点击应用才写入。当前普通项目会话不受该限制。文件保存和应用建议均检查内容版本；外部修改后会保留编辑区草稿并拒绝覆盖。当前使用文件哈希进行乐观检查，不提供对其他进程并发写入的系统级锁。文件未单独加密。若 Harness 使用 PTC `run_code` 执行模式，知识会话为避免绕过确认而拒绝执行 `run_code`；需要使用原生工具执行模式。
 
@@ -48,4 +50,4 @@ pnpm run pack
 
 会话 carrier 和浏览器控制路由复用 `ds-harness-remote v0.5.18` 的必要部分，来源及许可证见 [vendor/dsh-remote/ORIGIN.md](vendor/dsh-remote/ORIGIN.md)。
 
-`pnpm check` 和 `pnpm test` 验证插件；`scripts/smoke.mjs` 使用隔离 DSH、Python 服务和确定性模型验证登录、远程新建/续聊/停止及请求去重。`scripts/workspace-desktop-smoke.mjs` 与 `scripts/workspace-editor-context-smoke.mjs` 分别验证知识工作区桌面交互和页面上下文，均应使用隔离 profile。当前实际验证及未部署范围见 [STATUS.md](../STATUS.md)。
+`pnpm check` 和 `pnpm test` 验证插件；`scripts/workspace-canvas-interaction-smoke.mjs` 和 `scripts/workspace-tree-canvas-smoke.mjs` 使用合成知识库检查画布和目录。`scripts/smoke.mjs` 使用隔离 DSH、Python 服务和确定性模型验证登录、远程新建/续聊/停止及请求去重。`scripts/workspace-desktop-smoke.mjs` 与 `scripts/workspace-editor-context-smoke.mjs` 分别验证知识工作区桌面交互和页面上下文，均应使用隔离 profile。当前实际验证及未部署范围见 [STATUS.md](../STATUS.md)。
