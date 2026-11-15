@@ -1,6 +1,7 @@
 mod auth;
 mod db;
 mod error;
+mod remote;
 mod schema;
 
 use argon2::{
@@ -27,6 +28,7 @@ pub struct AppState {
     jwt_secret: Arc<[u8]>,
     invite_hash: Option<[u8; 32]>,
     dummy_hash: Arc<str>,
+    relay: Arc<remote::Relay>,
 }
 
 impl AppState {
@@ -56,6 +58,7 @@ impl AppState {
                 .filter(|v| !v.is_empty())
                 .map(|v| Sha256::digest(v.as_bytes()).into()),
             dummy_hash: Arc::from(dummy_hash),
+            relay: Arc::new(remote::Relay::default()),
         })
     }
 }
@@ -101,6 +104,8 @@ pub fn router(state: AppState) -> Router {
         .route("/api/auth/me", get(auth::me))
         .route("/api/devices", get(auth::devices))
         .route("/api/devices/{device_id}", delete(auth::revoke_device))
+        .route("/api/device/connect", get(remote::connect))
+        .route("/api/remote/call", post(remote::call))
         .layer(DefaultBodyLimit::max(2 * 1024 * 1024))
         .with_state(state)
 }

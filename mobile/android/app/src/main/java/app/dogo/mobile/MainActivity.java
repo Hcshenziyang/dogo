@@ -6,6 +6,8 @@ import android.os.Bundle;
 import android.os.Handler;
 import android.os.Looper;
 import android.text.InputType;
+import android.text.Editable;
+import android.text.TextWatcher;
 import android.view.View;
 import android.view.ViewGroup;
 import android.view.WindowInsets;
@@ -21,13 +23,25 @@ public final class MainActivity extends Activity {
     private ExecutorService worker;
     private SecureStore store;
     private ApiClient api;
+    private RemoteSessions remote;
     private LinearLayout root, shell;
+    private ScrollView pageScroll;
     private MobileUi ui;
     private TextView message;
     private boolean busy, destroyed;
     private String screen = "login";
     private int generation;
     private JSONArray devices = new JSONArray();
+    private boolean foreground, remoteInFlight;
+    private String selectedDevice = "", selectedSession = "", selectedName = "", selectedTitle = "";
+    private boolean hostOnline, stateKnown, sessionRunning;
+    private String renderedMessages = "";
+    private String autoRetriedId = "";
+    private LinearLayout sessionRows, chatMessages;
+    private TextView chatStatus, pendingStatus;
+    private EditText chatInput;
+    private Button sendButton, retryButton, stopRetryButton;
+    private final Runnable poll = () -> { if (foreground && screen.equals("chat")) refreshChat(); };
     private android.window.OnBackInvokedCallback backCallback;
 
     @Override public void onCreate(Bundle saved) {
@@ -42,9 +56,10 @@ public final class MainActivity extends Activity {
             application.initialize();
             store = application.store;
             api = application.api;
+            remote = application.remote;
             worker = application.worker;
             store.removeMemoDrafts();
-            if (store.session() == null) showLogin(); else loadSettings();
+            if (store.session() == null) showLogin(); else showSessions();
         } catch (Exception error) {
             page("本机数据无法读取", "请保留应用数据后排查；当前没有覆盖原文件。");
             label("无法解密或读取本机数据。", 16);
@@ -52,8 +67,16 @@ public final class MainActivity extends Activity {
     }
     @Override protected void onResume() {
         super.onResume();
+        foreground = true;
         if (api == null || busy || store.session() == null) return;
         if (screen.equals("settings")) loadSettings();
+        else if (screen.equals("sessions")) refreshSessions();
+        else if (screen.equals("chat")) refreshChat();
+    }
+    @Override protected void onPause() {
+        foreground = false;
+        main.removeCallbacks(poll);
+        super.onPause();
     }
     @Override protected void onDestroy() {
         destroyed = true;
@@ -68,7 +91,8 @@ public final class MainActivity extends Activity {
     }
     private void handleBack() {
         if (busy) return;
-        moveTaskToBack(true);
+        if (screen.equals("chat") || screen.equals("settings")) showSessions();
+        else moveTaskToBack(true);
     }
 
     private int dp(int value) { return ui.dp(value); }
@@ -95,6 +119,7 @@ public final class MainActivity extends Activity {
         root.setFocusableInTouchMode(true);
         root.setPadding(dp(24), dp(18), dp(24), dp(24));
         ScrollView scroll = new ScrollView(this);
+        pageScroll = scroll;
         scroll.setFillViewport(true);
         scroll.setClipToPadding(false);
         scroll.setVerticalScrollBarEnabled(false);
@@ -235,6 +260,281 @@ public final class MainActivity extends Activity {
         return error.status == 422 ? "提交字段不符合接口限制。"
                 : "请求未完成（" + error.status + " / " + error.code + "）";
     }
+    private String scope() {
+        JSONObject session = store.session();
+        return SecureStore.scope(session.optString("server"), session.optString("username").toLowerCase(java.util.Locale.ROOT));
+    }
+    private void background(Job job, Done done, Failed failed) {
+        if (remoteInFlight || destroyed) return;
+        remoteInFlight = true;
+        int version = generation;
+        worker.execute(() -> {
+            JSONObject result = null;
+            Exception error = null;
+            try { result = job.run(); } catch (Exception e) { error = e; }
+            JSONObject value = result;
+            Exception problem = error;
+            main.post(() -> {
+                remoteInFlight = false;
+                if (destroyed) return;
+                if (version != generation) {
+                    if (foreground && screen.equals("chat")) refreshChat();
+                    else if (foreground && screen.equals("sessions")) refreshSessions();
+                    return;
+                }
+                if (problem == null) done.accept(value); else failed.accept(problem);
+            });
+        });
+    }
+    private void showSessions() {
+        if (store.session() == null) { showLogin(); return; }
+        screen = "sessions";
+        main.removeCallbacks(poll);
+        page("最近会话", "继续电脑上已有的对话。");
+        LinearLayout actions = ui.row();
+        Button refresh = ui.button("刷新", false, false);
+        Button settings = ui.button("设置与设备", false, false);
+        actions.addView(refresh, new LinearLayout.LayoutParams(0, -2, 1));
+        LinearLayout.LayoutParams right = new LinearLayout.LayoutParams(0, -2, 1);
+        right.leftMargin = dp(8);
+        actions.addView(settings, right);
+        root.addView(actions, ui.spaced(18));
+        refresh.setOnClickListener(v -> refreshSessions());
+        settings.setOnClickListener(v -> loadSettings());
+        sessionRows = ui.column();
+        root.addView(sessionRows);
+        renderSessions(remote.cachedList(scope()).optJSONArray("items"), true);
+        if (foreground) refreshSessions();
+    }
+    private void renderSessions(JSONArray entries, boolean cached) {
+        sessionRows.removeAllViews();
+        if (entries == null || entries.length() == 0) {
+            TextView empty = ui.text(cached ? "正在读取会话；已打开过的会话会保留在这里。" : "暂无会话。请先在电脑上打开 DogO 设备插件并创建会话。", 15, ui.muted, false);
+            sessionRows.addView(empty, ui.spaced(12));
+            return;
+        }
+        for (int i = 0; i < entries.length(); i++) {
+            JSONObject item = entries.optJSONObject(i);
+            if (item == null) continue;
+            String device = item.optString("device"), session = item.optString("sessionId");
+            if (device.isEmpty() || session.isEmpty()) continue;
+            LinearLayout card = ui.column();
+            card.setPadding(dp(18), dp(16), dp(18), dp(16));
+            card.setBackground(ui.ripple(ui.surface, 18));
+            TextView title = ui.text(item.optString("title", "新会话"), 17, ui.text, true);
+            card.addView(title, ui.spaced(8));
+            String preview = remote.cached(scope(), device, session).optString("preview", item.optString("preview"));
+            TextView excerpt = ui.text(preview.isEmpty() ? "打开查看最近消息" : preview.replace('\n', ' '), 14, ui.muted, false);
+            excerpt.setMaxLines(2);
+            excerpt.setEllipsize(android.text.TextUtils.TruncateAt.END);
+            card.addView(excerpt, ui.spaced(8));
+            String state = cached ? "状态待更新" : item.optBoolean("online") ? "在线" : "离线或状态未知";
+            String timestamp = date(item.opt("updatedAt"));
+            TextView meta = ui.text(item.optString("deviceName", "电脑") + " · " + state + (timestamp.isEmpty() ? "" : " · " + timestamp), 12, ui.muted, false);
+            card.addView(meta);
+            card.setOnClickListener(v -> openChat(device, session, item.optString("deviceName", "电脑"), item.optString("title", "会话")));
+            sessionRows.addView(card, ui.spaced(10));
+        }
+    }
+    private String date(Object value) {
+        try {
+            java.time.Instant instant;
+            if (value instanceof Number) {
+                long n = ((Number) value).longValue();
+                instant = java.time.Instant.ofEpochMilli(n < 1000000000000L ? n * 1000 : n);
+            } else instant = java.time.Instant.parse(String.valueOf(value));
+            return java.time.format.DateTimeFormatter.ofPattern("MM-dd HH:mm").withZone(java.time.ZoneId.systemDefault()).format(instant);
+        } catch (Exception ignored) { return ""; }
+    }
+    private void refreshSessions() {
+        if (!foreground || !screen.equals("sessions") || remoteInFlight || busy) return;
+        String account = scope();
+        say("正在更新会话…");
+        background(() -> remote.list(account), result -> {
+            renderSessions(result.optJSONArray("items"), false);
+            say(result.optBoolean("incomplete") ? "部分会话暂时无法读取，可稍后刷新。" : "");
+            loadPreview(result.optJSONArray("items"), 0, account);
+        }, error -> {
+            renderSessions(remote.cachedList(account).optJSONArray("items"), true);
+            say("暂时无法连接服务，显示已保存的会话。");
+            if (store.session() == null) { showLogin(); say("登录已失效，请重新登录。"); }
+        });
+    }
+    private void loadPreview(JSONArray entries, int start, String account) {
+        if (!foreground || !screen.equals("sessions") || remoteInFlight || entries == null || start >= Math.min(entries.length(), 8)) return;
+        JSONObject item = entries.optJSONObject(start);
+        if (item == null || !item.optBoolean("online") || !remote.cached(account, item.optString("device"), item.optString("sessionId")).optString("preview").isEmpty()) {
+            loadPreview(entries, start + 1, account); return;
+        }
+        background(() -> Json.of("preview", remote.preview(account, item.optString("device"), item.optString("sessionId"))), value -> {
+            renderSessions(entries, false);
+            loadPreview(entries, start + 1, account);
+        }, error -> loadPreview(entries, start + 1, account));
+    }
+    private void openChat(String device, String session, String name, String title) {
+        selectedDevice = device; selectedSession = session; selectedName = name; selectedTitle = title;
+        autoRetriedId = "";
+        hostOnline = false; stateKnown = false; sessionRunning = false; renderedMessages = "";
+        screen = "chat";
+        page(title, name);
+        button("‹ 最近会话", 0, this::showSessions);
+        chatStatus = label("电脑状态待更新 · 会话状态未知", 13);
+        chatStatus.setTextColor(ui.muted);
+        pendingStatus = label("", 13);
+        pendingStatus.setTextColor(ui.muted);
+        pendingStatus.setTextIsSelectable(true);
+        chatMessages = ui.column();
+        root.addView(chatMessages, ui.spaced(10));
+        LinearLayout composer = ui.column();
+        composer.setPadding(dp(16), dp(8), dp(16), dp(12));
+        composer.setBackgroundColor(ui.surface);
+        chatInput = new EditText(this);
+        chatInput.setId(R.id.chat_input);
+        chatInput.setSaveEnabled(false);
+        chatInput.setHint("写下接下来要说的话");
+        chatInput.setTextSize(16);
+        chatInput.setTextColor(ui.text);
+        chatInput.setHintTextColor(ui.muted);
+        chatInput.setBackground(ui.inputBackground());
+        chatInput.setPadding(dp(14), dp(10), dp(14), dp(10));
+        chatInput.setMinLines(2); chatInput.setMaxLines(5);
+        chatInput.setInputType(InputType.TYPE_CLASS_TEXT | InputType.TYPE_TEXT_FLAG_MULTI_LINE | InputType.TYPE_TEXT_FLAG_CAP_SENTENCES);
+        JSONObject cached = remote.cached(scope(), device, session);
+        chatInput.setText(cached.optString("draft"));
+        composer.addView(chatInput, ui.spaced(8));
+        LinearLayout buttons = ui.row();
+        retryButton = ui.button("重新确认", false, false);
+        retryButton.setId(R.id.retry_message);
+        sendButton = ui.button("发送", true, false);
+        sendButton.setId(R.id.send_message);
+        buttons.addView(retryButton, new LinearLayout.LayoutParams(0, -2, 1));
+        LinearLayout.LayoutParams sendLayout = new LinearLayout.LayoutParams(0, -2, 1);
+        sendLayout.leftMargin = dp(8);
+        buttons.addView(sendButton, sendLayout);
+        composer.addView(buttons);
+        stopRetryButton = ui.button("停止确认这条消息", false, false);
+        composer.addView(stopRetryButton, ui.spaced(0));
+        shell.addView(composer);
+        chatInput.addTextChangedListener(new TextWatcher() {
+            public void beforeTextChanged(CharSequence s, int start, int count, int after) {}
+            public void onTextChanged(CharSequence s, int start, int before, int count) {
+                try { remote.draft(scope(), device, session, s.toString()); }
+                catch (Exception error) { say("草稿未能保存，请先复制内容。"); }
+                updateChatControls();
+            }
+            public void afterTextChanged(Editable value) {}
+        });
+        sendButton.setOnClickListener(v -> sendMessage(false));
+        retryButton.setOnClickListener(v -> sendMessage(true));
+        stopRetryButton.setOnClickListener(v -> new AlertDialog.Builder(this)
+                .setTitle("停止确认这条消息？")
+                .setMessage("电脑可能已经执行了这条消息。停止确认不会撤销或停止电脑上的工作；原文会保存在本机供复制。")
+                .setNegativeButton("返回", null).setPositiveButton("停止确认", (dialog, which) -> {
+                    try { remote.stopConfirming(scope(), device, session); autoRetriedId = ""; updateChatControls(); }
+                    catch (Exception error) { say("未能保存消息备份，请重试。"); }
+                }).show());
+        renderChat(cached.optJSONArray("messages"));
+        updateChatControls();
+        if (foreground) refreshChat();
+    }
+    private void renderChat(JSONArray messages) {
+        String next = messages == null ? "" : messages.toString();
+        if (next.equals(renderedMessages)) return;
+        boolean atBottom = renderedMessages.isEmpty()
+                || pageScroll.getScrollY() + pageScroll.getHeight() >= root.getHeight() - dp(80);
+        renderedMessages = next;
+        chatMessages.removeAllViews();
+        if (messages == null || messages.length() == 0) {
+            chatMessages.addView(ui.text("暂无已加载的消息。", 14, ui.muted, false)); return;
+        }
+        for (int i = 0; i < messages.length(); i++) {
+            JSONObject item = messages.optJSONObject(i);
+            if (item == null) continue;
+            String role = item.optString("role"), text = item.optString("text");
+            TextView bubble = ui.text((role.equals("user") ? "你" : role.equals("assistant") ? "AI" : "进度") + "\n" + text,
+                    15, ui.text, false);
+            bubble.setTextIsSelectable(true);
+            bubble.setPadding(dp(16), dp(14), dp(16), dp(14));
+            bubble.setBackground(ui.shape(role.equals("user") ? ui.tint : ui.surface, 16, 0));
+            chatMessages.addView(bubble, ui.spaced(10));
+        }
+        TextView note = ui.text("显示电脑返回的最近消息。", 12, ui.muted, false);
+        chatMessages.addView(note);
+        if (atBottom) pageScroll.post(() -> pageScroll.fullScroll(View.FOCUS_DOWN));
+    }
+    private void updateChatControls() {
+        if (!screen.equals("chat") || chatInput == null) return;
+        JSONObject cached = remote.cached(scope(), selectedDevice, selectedSession);
+        JSONObject pending = cached.optJSONObject("pending");
+        chatStatus.setText((hostOnline ? "电脑在线" : "电脑离线或连接未知") + " · "
+                + (!stateKnown ? "会话状态未知" : sessionRunning ? "正在执行" : "可以继续"));
+        StringBuilder notice = new StringBuilder();
+        if (pending != null) notice.append("发送结果未确认，原消息已保存：\n").append(pending.optString("text"));
+        else if (cached.optBoolean("accepted")) notice.append("电脑已收到上一条消息");
+        JSONArray archives = cached.optJSONArray("unconfirmed_archive");
+        if (archives != null) for (int i = 0; i < archives.length(); i++) {
+            JSONObject saved = archives.optJSONObject(i);
+            if (saved == null) continue;
+            if (notice.length() > 0) notice.append("\n\n");
+            notice.append("已停止确认的消息（可复制原文）：\n").append(saved.optString("text"));
+        }
+        pendingStatus.setText(notice.toString());
+        pendingStatus.setVisibility(notice.length() > 0 ? View.VISIBLE : View.GONE);
+        boolean ready = foreground && hostOnline && stateKnown && !sessionRunning && !remoteInFlight;
+        sendButton.setEnabled(ready && pending == null && !chatInput.getText().toString().trim().isEmpty());
+        retryButton.setVisibility(pending == null ? View.GONE : View.VISIBLE);
+        retryButton.setEnabled(ready && pending != null);
+        stopRetryButton.setVisibility(pending == null ? View.GONE : View.VISIBLE);
+        stopRetryButton.setEnabled(!remoteInFlight);
+    }
+    private void refreshChat() {
+        if (!foreground || !screen.equals("chat") || remoteInFlight || busy) return;
+        String account = scope(), device = selectedDevice, session = selectedSession;
+        background(() -> remote.detail(account, device, session), result -> {
+            hostOnline = result.optBoolean("online"); stateKnown = result.optBoolean("known");
+            sessionRunning = result.optBoolean("running");
+            if (result.has("messages")) renderChat(result.optJSONArray("messages"));
+            updateChatControls();
+            JSONObject pending = remote.cached(account, device, session).optJSONObject("pending");
+            if (!hostOnline) autoRetriedId = "";
+            if (pending != null && foreground && hostOnline && stateKnown && !sessionRunning
+                    && !pending.optString("requestId").equals(autoRetriedId)) {
+                autoRetriedId = pending.optString("requestId");
+                sendMessage(true);
+                return;
+            }
+            if (foreground && screen.equals("chat")) main.postDelayed(poll, 4000);
+        }, error -> {
+            hostOnline = false; stateKnown = false; autoRetriedId = ""; updateChatControls();
+            if (store.session() == null) { showLogin(); say("登录已失效，请重新登录。"); return; }
+            if (foreground && screen.equals("chat")) main.postDelayed(poll, 4000);
+        });
+        updateChatControls();
+    }
+    private void sendMessage(boolean retry) {
+        if (remoteInFlight || !foreground || !hostOnline || !stateKnown || sessionRunning) return;
+        String account = scope(), device = selectedDevice, session = selectedSession;
+        if (!retry) {
+            try {
+                remote.prepare(account, device, session, chatInput.getText().toString());
+                chatInput.setText("");
+            } catch (Exception error) { say(error instanceof IllegalArgumentException ? error.getMessage() : "消息未能保存，请复制后重试。"); return; }
+        }
+        main.removeCallbacks(poll);
+        background(() -> {
+            JSONObject current = remote.detail(account, device, session);
+            if (!current.optBoolean("online") || !current.optBoolean("known") || current.optBoolean("running"))
+                throw new IllegalStateException("电脑暂时无法接收");
+            return remote.retry(account, device, session);
+        }, result -> { stateKnown = false; updateChatControls(); refreshChat(); }, error -> {
+            JSONObject pending = remote.cached(account, device, session).optJSONObject("pending");
+            autoRetriedId = retry && pending != null ? pending.optString("requestId") : "";
+            stateKnown = false; updateChatControls();
+            say("尚未确认电脑是否收到；请在会话空闲时重新确认。原消息和请求编号已保留。");
+            if (foreground && screen.equals("chat")) main.postDelayed(poll, 4000);
+        });
+        updateChatControls();
+    }
     private void showLogin() {
         screen = "login";
         page("连接你的服务", "登录后管理已连接的设备。");
@@ -264,7 +564,7 @@ public final class MainActivity extends Activity {
                 store.put("preferences", Json.of("server", origin, "username", user, "device_name", deviceName));
                 return api.login(origin, user, secret, store.deviceId(origin, user), deviceName);
             }, value -> {
-                devices = new JSONArray(); loadSettings();
+                devices = new JSONArray(); showSessions();
             });
         });
         label("使用已有 DogO 账户登录", 12).setTextColor(ui.muted);
@@ -284,6 +584,7 @@ public final class MainActivity extends Activity {
             screen = "settings";
             JSONObject session = store.session();
             page("设置与设备", "管理账户和已连接的设备。");
+            button("‹ 最近会话", 0, this::showSessions);
             TextView account = label(session.optString("username") + "\n" + session.optString("server"), 16);
             account.setPadding(dp(20), dp(20), dp(20), dp(20));
             account.setBackground(ui.shape(ui.surface, 20, 0));

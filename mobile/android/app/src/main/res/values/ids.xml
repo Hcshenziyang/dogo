@@ -6,4 +6,7 @@
     <item name="login" type="id" />
     <item name="logout" type="id" />
     <item name="message" type="id" />
+    <item name="chat_input" type="id" />
+    <item name="send_message" type="id" />
+    <item name="retry_message" type="id" />
 </resources>

@@ -31,7 +31,7 @@ RUN --mount=type=cache,target=/usr/local/cargo/registry \
       *) echo "Unsupported target architecture: $TARGETARCH" >&2; exit 1 ;; \
     esac; \
     rustup target add "$target"; \
-    cargo build --locked --release --bin dogo-memo-server --target "$target"; \
+    CARGO_BUILD_JOBS=1 cargo build --locked --release --bin dogo-memo-server --target "$target"; \
     cp "target/$target/release/dogo-memo-server" /dogo-memo-server
 
 FROM debian:bookworm-slim

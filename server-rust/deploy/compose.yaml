@@ -1,6 +1,6 @@
 services:
   dogo-memos:
-    image: dogo-memos:20261112-9ca399a
+    image: dogo-memos:remote-session-20261115
     container_name: dogo-memos
     restart: unless-stopped
     init: true

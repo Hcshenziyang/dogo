@@ -439,19 +439,34 @@ pub struct DeviceView {
     created_at: i64,
 }
 
+#[derive(Serialize)]
+pub struct OnlineDevice {
+    #[serde(flatten)]
+    device: DeviceView,
+    online: bool,
+}
+
 pub async fn devices(
     State(state): State<AppState>,
     headers: HeaderMap,
-) -> Result<Json<Vec<DeviceView>>, ApiError> {
+) -> Result<Json<Vec<OnlineDevice>>, ApiError> {
     let p = principal(&state, &headers).await?;
     let mut conn = state.pool.get().await.map_err(|_| ApiError::internal())?;
     let result = devices::table
-        .filter(devices::account_id.eq(p.account_id))
+        .filter(devices::account_id.eq(&p.account_id))
         .order((devices::created_at, devices::id))
         .select(DeviceView::as_select())
         .load(&mut conn)
         .await?;
-    Ok(Json(result))
+    Ok(Json(
+        result
+            .into_iter()
+            .map(|device| OnlineDevice {
+                online: device.active && state.relay.is_online(&p.account_id, &device.id),
+                device,
+            })
+            .collect(),
+    ))
 }
 
 pub async fn revoke_device(

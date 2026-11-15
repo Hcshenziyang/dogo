@@ -1,6 +1,6 @@
 # DogO Rust 服务
 
-独立 Rust 服务提供邀请码注册、登录认证与设备管理，使用 Diesel ORM 和 diesel-async 访问 SQLite；数据与 `server/` Python 服务分开。当前不提供远程会话中转或服务端 MCP。
+独立 Rust 服务提供邀请码注册、登录认证、设备管理和在线会话中转，使用 Diesel ORM 和 diesel-async 访问 SQLite；数据与 `server/` Python 服务分开。不提供服务端 MCP。
 
 旧备忘录 API 已移除；此前 Rust 数据库 v1 启动升级到 v2 时，在同一事务删除备忘录表，保留账号、凭据和设备。其他服务或非 DogO 数据库不会被当作 Rust 数据库迁移。数据库历史文件名 `dogo-memo.sqlite3` 暂时保留以便定位原库。
 
@@ -31,7 +31,7 @@ cargo run --release --locked
 docker buildx build --platform linux/amd64 --load -t dogo-server:local server-rust
 ```
 
-`deploy/compose.yaml` 记录当前服务器的旧 Portainer `dogo` 栈配置，镜像及容器仍使用历史名称；它不会自动更新为本地代码。该配置中：镜像只在本机，绑定 `127.0.0.1:8788`，由现有 Nginx 提供 HTTPS；数据保存在 `/var/lib/dogo-rust`，邀请码配置在仅 root 可读的 `/etc/dogo-rust/registration.env`。更新时需要先构建并导入新镜像，再把栈中的镜像标签改为新版本并重新部署；不要启用从远程仓库拉取本地镜像的选项。
+`deploy/compose.yaml` 记录服务器 Portainer `dogo` 栈配置，镜像及容器仍使用历史名称；它不会自动更新为本地代码。该配置中：镜像只在本机，绑定 `127.0.0.1:8788`，由现有 Nginx 提供 HTTPS；数据保存在 `/var/lib/dogo-rust`，邀请码配置在仅 root 可读的 `/etc/dogo-rust/registration.env`。更新时需要先构建并导入新镜像，再把栈中的镜像标签改为新版本并重新部署；不要启用从远程仓库拉取本地镜像的选项。
 
 服务器保留每日 SQLite 一致性备份，最多 14 份，保存在仅 root 可读的 `/var/backups/dogo-rust`。`deploy/backup.py` 使用 SQLite 备份 API，`dogo-backup.timer` 调用 `deploy/dogo-backup.service` 对应的服务器部署文件。
 
@@ -50,7 +50,8 @@ ssh -t -i ~/.ssh/id_ed25519 root@dogo.hcblj.top /opt/dogo-rust/register-user.py
 其他接口：
 
 - `POST /api/auth/login`、`POST /api/auth/refresh`、`POST /api/auth/logout`、`GET /api/auth/me`。
-- `GET /api/devices` 和 `DELETE /api/devices/{id}`，用于查看及撤销登录设备；不提供设备在线状态。
+- `GET /api/devices` 和 `DELETE /api/devices/{id}`，用于查看及撤销登录设备；`online` 表示当前进程中设备插件的实时连接状态。
+- `GET /api/device/connect` 为桌面设备提供 Bearer 认证的 WebSocket；`POST /api/remote/call` 将已允许的方法转给同一账户、已启用的在线桌面。请求超时或断线时结果可能未知，续聊必须保留原始 `requestId` 和完整内容再重试。中转不保存对话，也不在设备离线时排队。协议与 [Python 服务说明](../server/README.md) 一致。
 
 ## 验证
 
