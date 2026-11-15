@@ -65,6 +65,7 @@ public class RemoteSessionsTest {
         final boolean[] online = {true};
         RemoteSessions remote = new RemoteSessions(memory, (method, path, body) -> {
             if (path.equals("/api/devices")) return Json.of("items", new JSONArray().put(Json.of("id", "mac", "name", "Mac", "active", true, "kind", "desktop", "online", online[0])));
+            if (body.optString("method").equals("workspaces")) return Json.of("value", Json.of("items", new JSONArray(), "archivedSessionIds", new JSONArray()));
             if (body.optString("method").equals("list")) return Json.of("value", Json.of("items", new JSONArray().put(Json.of("sessionId", "session", "running", true, "title", "Title"))));
             JSONObject message = Json.of("content", new JSONArray().put(Json.of("type", "text", "text", "still working")));
             JSONObject event = Json.of("type", "assistant/message", "data", Json.of("message", message));
@@ -85,6 +86,7 @@ public class RemoteSessionsTest {
     @Test public void missingRunningFieldIsUnknownEvenWhenSnapshotHasTurnEnd() throws Exception {
         RemoteSessions remote = new RemoteSessions(new Memory(), (method, path, body) -> {
             if (path.equals("/api/devices")) return Json.of("items", new JSONArray().put(Json.of("id", "mac", "active", true, "online", true)));
+            if (body.optString("method").equals("workspaces")) return Json.of("value", Json.of("items", new JSONArray(), "archivedSessionIds", new JSONArray()));
             if (body.optString("method").equals("list")) return Json.of("value", Json.of("items", new JSONArray().put(Json.of("sessionId", "session"))));
             JSONObject event = Json.of("type", "turn/end", "data", Json.of("reason", Json.of("kind", "completed")));
             return Json.of("value", Json.of("records", new JSONArray().put(Json.of("event", event))));
@@ -98,18 +100,20 @@ public class RemoteSessionsTest {
             if (path.equals("/api/devices")) return Json.of("items", new JSONArray().put(Json.of("id", "mac", "name", "Mac", "kind", "desktop", "active", true, "online", online[0])));
             if (body.optString("method").equals("workspaces")) {
                 if (!projectsAvailable[0]) throw new IOException("workspace unavailable");
-                return Json.of("value", Json.of("items", new JSONArray()
+                return Json.of("value", Json.of("archivedSessionIds", new JSONArray().put("archived"), "items", new JSONArray()
                         .put(Json.of("workspaceId", "p1", "title", "Project", "sessionIds", new JSONArray().put("s1")))
                         .put(Json.of("workspaceId", "p2", "title", "Empty", "sessionIds", new JSONArray()))));
             }
             return Json.of("value", Json.of("items", new JSONArray()
                     .put(Json.of("sessionId", "s1", "running", false))
-                    .put(Json.of("sessionId", "s2", "running", false))));
+                    .put(Json.of("sessionId", "s2", "running", false))
+                    .put(Json.of("sessionId", "archived", "running", false))));
         });
         JSONObject first = remote.list("a");
         assertEquals(2, first.getJSONArray("projects").length());
         assertEquals("Project", first.getJSONArray("items").getJSONObject(0).optString("projectName"));
         assertEquals("未分组", first.getJSONArray("items").getJSONObject(1).optString("projectName"));
+        assertEquals(2, first.getJSONArray("items").length());
         projectsAvailable[0] = false;
         JSONObject partial = remote.list("a");
         assertTrue(partial.optBoolean("incomplete"));
@@ -118,6 +122,22 @@ public class RemoteSessionsTest {
         JSONObject offline = remote.list("a");
         assertEquals(2, offline.getJSONArray("projects").length());
         assertEquals("Project", offline.getJSONArray("items").getJSONObject(0).optString("projectName"));
+    }
+    @Test public void oldUnverifiedCacheAndArchivedSessionsStayHidden() throws Exception {
+        Memory memory = new Memory();
+        memory.put("remote-list:a", Json.of("items", new JSONArray().put(Json.of("device", "mac", "sessionId", "archived"))));
+        final boolean[] snapshotCalled = {false};
+        RemoteSessions remote = new RemoteSessions(memory, (method, path, body) -> {
+            if (path.equals("/api/devices")) return Json.of("items", new JSONArray().put(Json.of("id", "mac", "kind", "desktop", "active", true, "online", true)));
+            if (body.optString("method").equals("workspaces")) return Json.of("value", Json.of("items", new JSONArray(), "archivedSessionIds", new JSONArray().put("archived")));
+            if (body.optString("method").equals("snapshot")) snapshotCalled[0] = true;
+            return Json.of("value", Json.of("items", new JSONArray().put(Json.of("sessionId", "archived", "running", false))));
+        });
+        assertEquals(0, remote.cachedList("a").getJSONArray("items").length());
+        assertNotNull("legacy data stays on disk until refresh", memory.get("remote-list:a"));
+        assertEquals(0, remote.list("a").getJSONArray("items").length());
+        assertTrue(remote.detail("a", "mac", "archived").optBoolean("archived"));
+        assertFalse("archived session must not be read", snapshotCalled[0]);
     }
     @Test public void modelOptionsPreserveProviderAndReasoningChoices() throws Exception {
         JSONObject reasoning = Json.of("defaultEffort", "low", "efforts", new JSONArray().put(Json.of("id", "high", "name", "高")));

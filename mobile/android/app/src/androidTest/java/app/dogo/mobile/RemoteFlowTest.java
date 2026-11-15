@@ -45,6 +45,7 @@ public class RemoteFlowTest {
         UiDevice device = UiDevice.getInstance(InstrumentationRegistry.getInstrumentation());
         UiObject2 session = device.wait(Until.findObject(By.text("测试远程会话")), 20000);
         assertNotNull("session list", session);
+        assertNull("archived session is hidden", device.findObject(By.text("归档测试会话")));
         UiObject2 filter = device.findObject(By.res(context.getPackageName(), "project_filter"));
         assertNotNull("project filter", filter);
         filter.click();

@@ -36,8 +36,11 @@ const connect = () => {
     if (message.type !== 'remote.call') return;
     const { method, args } = message.call;
     let value;
-    if (method === 'list') value = { items: [{ sessionId: 'synthetic-session', title: '测试远程会话', running, updatedAt: Date.now() }] };
-    else if (method === 'workspaces') value = { items: [
+    if (method === 'list') value = { items: [
+      { sessionId: 'synthetic-session', title: '测试远程会话', running, updatedAt: Date.now() },
+      { sessionId: 'archived-session', title: '归档测试会话', running: false, updatedAt: Date.now() },
+    ] };
+    else if (method === 'workspaces') value = { archivedSessionIds: ['archived-session'], items: [
       { workspaceId: 'project-1', title: '测试项目', sessionIds: ['synthetic-session'] },
       { workspaceId: 'empty-project', title: '空项目', sessionIds: [] },
     ] };

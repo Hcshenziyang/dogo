@@ -634,6 +634,9 @@ public final class MainActivity extends Activity {
         if (!foreground || !screen.equals("chat") || remoteInFlight || busy) return;
         String account = scope(), device = selectedDevice, session = selectedSession;
         background(() -> remote.detail(account, device, session), result -> {
+            if (result.optBoolean("archived")) {
+                showSessions(); say("该会话已在电脑上归档，已从手机列表隐藏。"); return;
+            }
             hostOnline = result.optBoolean("online"); stateKnown = result.optBoolean("known");
             sessionRunning = result.optBoolean("running");
             if (!applyingModel && result.optJSONObject("selection") != null) selectedModel = result.optJSONObject("selection");

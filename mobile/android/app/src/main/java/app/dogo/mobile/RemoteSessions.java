@@ -5,6 +5,7 @@ import org.json.JSONObject;
 import java.util.ArrayList;
 import java.util.Comparator;
 import java.util.HashMap;
+import java.util.HashSet;
 import java.util.UUID;
 
 /** The server forwards calls; drafts, cached messages and unconfirmed sends stay on this device. */
@@ -105,7 +106,21 @@ final class RemoteSessions {
     }
     synchronized JSONObject cachedList(String scope) {
         JSONObject cached = storage.get("remote-list:" + scope);
-        return cached == null ? Json.of("items", new JSONArray()) : cached;
+        if (cached == null || !cached.optBoolean("archiveChecked"))
+            return Json.of("items", new JSONArray(), "projects", new JSONArray());
+        return cached;
+    }
+    private synchronized void hideArchivedSession(String scope, String device, String session) throws Exception {
+        JSONObject list = cachedList(scope);
+        JSONArray entries = list.optJSONArray("items"), filtered = new JSONArray();
+        if (entries != null) for (int i = 0; i < entries.length(); i++) {
+            JSONObject entry = entries.optJSONObject(i);
+            if (entry != null && !(device.equals(entry.optString("device")) && session.equals(entry.optString("sessionId"))))
+                filtered.put(entry);
+        }
+        Json.put(list, "items", filtered);
+        Json.put(list, "archiveChecked", true);
+        storage.put("remote-list:" + scope, list);
     }
     JSONObject list(String scope) throws Exception {
         JSONArray devices = client.request("GET", "/api/devices", null).optJSONArray("items");
@@ -121,11 +136,15 @@ final class RemoteSessions {
             String id = device.optString("id"), name = device.optString("name", "电脑");
             boolean online = device.optBoolean("online");
             HashMap<String, JSONObject> assignments = new HashMap<>();
+            HashSet<String> archived = new HashSet<>();
             boolean projectKnown = false;
             if (online) {
                 try {
-                    JSONArray workspaces = remote(id, "workspaces", new JSONObject()).optJSONArray("items");
-                    if (workspaces == null) throw new IllegalStateException("项目列表无效");
+                    JSONObject baseline = remote(id, "workspaces", new JSONObject());
+                    JSONArray workspaces = baseline.optJSONArray("items");
+                    JSONArray archivedIds = baseline.optJSONArray("archivedSessionIds");
+                    if (workspaces == null || archivedIds == null) throw new IllegalStateException("无法确认项目或归档状态");
+                    for (int n = 0; n < archivedIds.length(); n++) archived.add(archivedIds.optString(n));
                     for (int n = 0; n < workspaces.length(); n++) {
                         JSONObject workspace = workspaces.optJSONObject(n);
                         if (workspace == null || workspace.optString("workspaceId").isEmpty()) continue;
@@ -151,7 +170,7 @@ final class RemoteSessions {
                         assignments.put(entry.optString("sessionId"), Json.of("workspaceId", entry.optString("workspaceId"), "title", entry.optString("projectName")));
                 }
             }
-            if (online) {
+            if (online && projectKnown) {
                 int first = items.size();
                 try {
                     String cursor = "";
@@ -163,6 +182,7 @@ final class RemoteSessions {
                             JSONObject session = pageItems.optJSONObject(n);
                             if (session == null || session.optString("sessionId").isEmpty()) continue;
                             String sessionId = session.optString("sessionId");
+                            if (archived.contains(sessionId)) continue;
                             JSONObject state = cached(scope, id, sessionId);
                             JSONObject project = assignments.get(sessionId);
                             boolean known = projectKnown || project != null;
@@ -182,7 +202,8 @@ final class RemoteSessions {
             }
             if (old != null) for (int n = 0; n < old.length(); n++) {
                 JSONObject entry = old.optJSONObject(n);
-                if (entry != null && id.equals(entry.optString("device"))) {
+                if (entry != null && id.equals(entry.optString("device"))
+                        && (!projectKnown || !archived.contains(entry.optString("sessionId")))) {
                     JSONObject copy = Json.copy(entry);
                     Json.put(copy, "online", false);
                     Json.put(copy, "deviceName", name);
@@ -193,7 +214,7 @@ final class RemoteSessions {
         items.sort(Comparator.comparingLong(RemoteSessions::updated).reversed());
         JSONArray result = new JSONArray();
         for (int i = 0; i < Math.min(items.size(), 150); i++) result.put(items.get(i));
-        JSONObject list = Json.of("items", result, "projects", projects, "incomplete", incomplete, "devices", devices);
+        JSONObject list = Json.of("items", result, "projects", projects, "incomplete", incomplete, "devices", devices, "archiveChecked", true);
         synchronized (this) { storage.put("remote-list:" + scope, list); }
         return list;
     }
@@ -216,6 +237,12 @@ final class RemoteSessions {
             if (d != null && device.equals(d.optString("id")) && d.optBoolean("active") && d.optBoolean("online")) online = true;
         }
         if (!online) return Json.of("online", false, "known", false);
+        JSONArray archived = remote(device, "workspaces", new JSONObject()).optJSONArray("archivedSessionIds");
+        if (archived == null) throw new IllegalStateException("无法确认会话归档状态");
+        for (int i = 0; i < archived.length(); i++) if (session.equals(archived.optString(i))) {
+            hideArchivedSession(scope, device, session);
+            return Json.of("online", true, "known", false, "archived", true);
+        }
         boolean known = false, running = false;
         String cursor = "";
         for (int page = 0; page < 10; page++) {
