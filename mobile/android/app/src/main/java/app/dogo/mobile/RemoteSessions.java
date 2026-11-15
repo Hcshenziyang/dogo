@@ -4,6 +4,7 @@ import org.json.JSONArray;
 import org.json.JSONObject;
 import java.util.ArrayList;
 import java.util.Comparator;
+import java.util.HashMap;
 import java.util.UUID;
 
 /** The server forwards calls; drafts, cached messages and unconfirmed sends stay on this device. */
@@ -28,6 +29,34 @@ final class RemoteSessions {
     }
     void draft(String scope, String device, String session, String value) throws Exception {
         update(scope, device, session, "draft", value);
+    }
+    void selection(String scope, String device, String session, JSONObject value) throws Exception {
+        update(scope, device, session, "selection", value);
+    }
+    synchronized JSONObject cachedCatalog(String scope, String device) {
+        return storage.get("remote-catalog:" + SecureStore.scope(scope, device));
+    }
+    synchronized void cacheCatalog(String scope, String device, JSONObject value) throws Exception {
+        storage.put("remote-catalog:" + SecureStore.scope(scope, device), value);
+    }
+    static ArrayList<JSONObject> modelOptions(JSONObject catalog) {
+        ArrayList<JSONObject> options = new ArrayList<>();
+        JSONArray groups = catalog == null ? null : catalog.optJSONArray("groups");
+        if (groups == null) return options;
+        for (int i = 0; i < groups.length(); i++) {
+            JSONObject group = groups.optJSONObject(i);
+            if (group == null || group.optString("id").isEmpty()) continue;
+            JSONArray models = group.optJSONArray("models");
+            if (models == null) continue;
+            for (int j = 0; j < models.length(); j++) {
+                JSONObject model = models.optJSONObject(j);
+                if (model == null || model.optString("id").isEmpty()) continue;
+                options.add(Json.of("provider", group.optString("id"), "model", model.optString("id"),
+                        "label", group.optString("name", group.optString("id")) + " · " + model.optString("name", model.optString("id")),
+                        "reasoning", model.optJSONObject("reasoning")));
+            }
+        }
+        return options;
     }
     synchronized JSONObject prepare(String scope, String device, String session, String text) throws Exception {
         JSONObject state = cached(scope, device, session);
@@ -81,14 +110,47 @@ final class RemoteSessions {
     JSONObject list(String scope) throws Exception {
         JSONArray devices = client.request("GET", "/api/devices", null).optJSONArray("items");
         if (devices == null) throw new IllegalStateException("设备列表无效");
-        JSONArray old = cachedList(scope).optJSONArray("items");
+        JSONObject previous = cachedList(scope);
+        JSONArray old = previous.optJSONArray("items"), oldProjects = previous.optJSONArray("projects");
         ArrayList<JSONObject> items = new ArrayList<>();
+        JSONArray projects = new JSONArray();
         boolean incomplete = false;
         for (int i = 0; i < devices.length(); i++) {
             JSONObject device = devices.optJSONObject(i);
             if (device == null || !device.optBoolean("active") || !"desktop".equals(device.optString("kind"))) continue;
             String id = device.optString("id"), name = device.optString("name", "电脑");
             boolean online = device.optBoolean("online");
+            HashMap<String, JSONObject> assignments = new HashMap<>();
+            boolean projectKnown = false;
+            if (online) {
+                try {
+                    JSONArray workspaces = remote(id, "workspaces", new JSONObject()).optJSONArray("items");
+                    if (workspaces == null) throw new IllegalStateException("项目列表无效");
+                    for (int n = 0; n < workspaces.length(); n++) {
+                        JSONObject workspace = workspaces.optJSONObject(n);
+                        if (workspace == null || workspace.optString("workspaceId").isEmpty()) continue;
+                        JSONObject project = Json.of("device", id, "deviceName", name,
+                                "workspaceId", workspace.optString("workspaceId"),
+                                "title", workspace.optString("title", "未命名项目"), "online", true);
+                        projects.put(project);
+                        JSONArray sessions = workspace.optJSONArray("sessionIds");
+                        if (sessions != null) for (int j = 0; j < sessions.length(); j++)
+                            assignments.putIfAbsent(sessions.optString(j), project);
+                    }
+                    projectKnown = true;
+                } catch (Exception error) { incomplete = true; }
+            }
+            if (!projectKnown) {
+                if (oldProjects != null) for (int n = 0; n < oldProjects.length(); n++) {
+                    JSONObject project = oldProjects.optJSONObject(n);
+                    if (project != null && id.equals(project.optString("device"))) projects.put(Json.copy(project));
+                }
+                if (old != null) for (int n = 0; n < old.length(); n++) {
+                    JSONObject entry = old.optJSONObject(n);
+                    if (entry != null && id.equals(entry.optString("device")) && entry.optBoolean("projectKnown"))
+                        assignments.put(entry.optString("sessionId"), Json.of("workspaceId", entry.optString("workspaceId"), "title", entry.optString("projectName")));
+                }
+            }
             if (online) {
                 int first = items.size();
                 try {
@@ -102,9 +164,13 @@ final class RemoteSessions {
                             if (session == null || session.optString("sessionId").isEmpty()) continue;
                             String sessionId = session.optString("sessionId");
                             JSONObject state = cached(scope, id, sessionId);
+                            JSONObject project = assignments.get(sessionId);
+                            boolean known = projectKnown || project != null;
                             items.add(Json.of("device", id, "deviceName", name, "online", true,
                                     "sessionId", sessionId, "title", title(session),
-                                    "updatedAt", session.opt("updatedAt"), "preview", state.optString("preview")));
+                                    "updatedAt", session.opt("updatedAt"), "preview", state.optString("preview"),
+                                    "projectKnown", known, "workspaceId", project == null ? "" : project.optString("workspaceId"),
+                                    "projectName", project == null ? (known ? "未分组" : "项目未知") : project.optString("title")));
                         }
                         String next = listing.optString("nextCursor", "");
                         if (next.isEmpty() || next.equals(cursor)) break;
@@ -127,7 +193,7 @@ final class RemoteSessions {
         items.sort(Comparator.comparingLong(RemoteSessions::updated).reversed());
         JSONArray result = new JSONArray();
         for (int i = 0; i < Math.min(items.size(), 150); i++) result.put(items.get(i));
-        JSONObject list = Json.of("items", result, "incomplete", incomplete, "devices", devices);
+        JSONObject list = Json.of("items", result, "projects", projects, "incomplete", incomplete, "devices", devices);
         synchronized (this) { storage.put("remote-list:" + scope, list); }
         return list;
     }
@@ -168,6 +234,10 @@ final class RemoteSessions {
             cursor = next;
         }
         JSONObject snapshot = remote(device, "snapshot", Json.of("sessionId", session));
+        JSONObject projections = snapshot.optJSONObject("projections");
+        JSONObject values = projections == null ? null : projections.optJSONObject("values");
+        JSONObject modelSelection = values == null ? null : values.optJSONObject("modelSelection");
+        JSONObject selection = modelSelection == null ? null : modelSelection.optJSONObject("next");
         JSONArray messages = conversation(snapshot);
         String preview = "";
         for (int i = messages.length() - 1; i >= 0; i--) {
@@ -179,9 +249,12 @@ final class RemoteSessions {
             JSONObject state = cached(scope, device, session);
             Json.put(state, "messages", messages);
             Json.put(state, "preview", preview);
+            if (selection != null) Json.put(state, "selection", selection);
             storage.put(key(scope, device, session), state);
         }
-        return Json.of("online", true, "known", known, "running", running, "messages", messages);
+        JSONObject result = Json.of("online", true, "known", known, "running", running, "messages", messages);
+        if (selection != null) Json.put(result, "selection", selection);
+        return result;
     }
     String preview(String scope, String device, String session) throws Exception {
         JSONArray messages = conversation(remote(device, "snapshot", Json.of("sessionId", session)));
@@ -221,8 +294,8 @@ final class RemoteSessions {
                 }
             }
             if (!text.isEmpty()) {
-                if (text.length() > 16000) text = text.substring(0, 16000) + "\n…（内容已截取）";
-                result.put(Json.of("role", role, "text", text));
+                String id = String.valueOf(event.opt("seq") != null ? event.opt("seq") : record.opt("seq") != null ? record.opt("seq") : i);
+                result.put(Json.of("id", id, "role", role, "text", text));
             }
         }
         return result;

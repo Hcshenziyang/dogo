@@ -15,8 +15,10 @@ import android.widget.*;
 import org.json.JSONArray;
 import org.json.JSONObject;
 import java.util.ArrayList;
+import java.util.HashSet;
 import java.util.List;
 import java.util.concurrent.ExecutorService;
+import io.noties.markwon.Markwon;
 
 public final class MainActivity extends Activity {
     private final Handler main = new Handler(Looper.getMainLooper());
@@ -36,11 +38,21 @@ public final class MainActivity extends Activity {
     private String selectedDevice = "", selectedSession = "", selectedName = "", selectedTitle = "";
     private boolean hostOnline, stateKnown, sessionRunning;
     private String renderedMessages = "";
+    private final HashSet<String> expandedMessages = new HashSet<>();
+    private Markwon markdown;
+    private JSONObject selectedModel, modelCatalog;
+    private boolean applyingModel;
     private String autoRetriedId = "";
+    private String projectFilterKey = "@all";
+    private JSONArray projectOptions = new JSONArray();
+    private JSONArray currentEntries = new JSONArray();
+    private boolean showingCachedEntries;
     private LinearLayout sessionRows, chatMessages;
     private TextView chatStatus, pendingStatus;
     private EditText chatInput;
     private Button sendButton, retryButton, stopRetryButton;
+    private Button projectButton;
+    private Button modelButton;
     private final Runnable poll = () -> { if (foreground && screen.equals("chat")) refreshChat(); };
     private android.window.OnBackInvokedCallback backCallback;
 
@@ -291,6 +303,7 @@ public final class MainActivity extends Activity {
         screen = "sessions";
         main.removeCallbacks(poll);
         page("最近会话", "继续电脑上已有的对话。");
+        markdown = MarkdownRenderer.create(this);
         LinearLayout actions = ui.row();
         Button refresh = ui.button("刷新", false, false);
         Button settings = ui.button("设置与设备", false, false);
@@ -301,40 +314,91 @@ public final class MainActivity extends Activity {
         root.addView(actions, ui.spaced(18));
         refresh.setOnClickListener(v -> refreshSessions());
         settings.setOnClickListener(v -> loadSettings());
+        projectButton = ui.button("全部项目 ▾", false, false);
+        projectButton.setId(R.id.project_filter);
+        projectButton.setGravity(android.view.Gravity.START | android.view.Gravity.CENTER_VERTICAL);
+        root.addView(projectButton, ui.spaced(12));
+        projectButton.setOnClickListener(v -> chooseProject());
         sessionRows = ui.column();
         root.addView(sessionRows);
-        renderSessions(remote.cachedList(scope()).optJSONArray("items"), true);
+        JSONObject cached = remote.cachedList(scope());
+        setProjects(cached.optJSONArray("projects"));
+        renderSessions(cached.optJSONArray("items"), true);
         if (foreground) refreshSessions();
     }
+    private String projectKey(JSONObject project) {
+        return project.optString("device") + "\n" + project.optString("workspaceId");
+    }
+    private void setProjects(JSONArray projects) {
+        projectOptions = projects == null ? new JSONArray() : projects;
+        String label = projectFilterKey.equals("@ungrouped") ? "未分组" : "全部项目";
+        boolean found = projectFilterKey.startsWith("@");
+        for (int i = 0; i < projectOptions.length(); i++) {
+            JSONObject project = projectOptions.optJSONObject(i);
+            if (project != null && projectFilterKey.equals(projectKey(project))) {
+                label = project.optString("title", "未命名项目"); found = true; break;
+            }
+        }
+        if (!found) { projectFilterKey = "@all"; label = "全部项目"; }
+        projectButton.setText(label + " ▾");
+    }
+    private void chooseProject() {
+        ArrayList<String> labels = new ArrayList<>(), keys = new ArrayList<>();
+        labels.add("全部项目"); keys.add("@all");
+        labels.add("未分组"); keys.add("@ungrouped");
+        for (int i = 0; i < projectOptions.length(); i++) {
+            JSONObject project = projectOptions.optJSONObject(i);
+            if (project == null) continue;
+            labels.add(project.optString("title", "未命名项目") + " · " + project.optString("deviceName", "电脑"));
+            keys.add(projectKey(project));
+        }
+        int selected = Math.max(0, keys.indexOf(projectFilterKey));
+        new AlertDialog.Builder(this).setTitle("选择项目")
+                .setSingleChoiceItems(labels.toArray(new String[0]), selected, (dialog, which) -> {
+                    projectFilterKey = keys.get(which);
+                    setProjects(projectOptions);
+                    renderSessions(currentEntries, showingCachedEntries);
+                    dialog.dismiss();
+                }).setNegativeButton("取消", null).show();
+    }
     private void renderSessions(JSONArray entries, boolean cached) {
+        currentEntries = entries == null ? new JSONArray() : entries;
+        showingCachedEntries = cached;
         sessionRows.removeAllViews();
-        if (entries == null || entries.length() == 0) {
+        if (currentEntries.length() == 0) {
             TextView empty = ui.text(cached ? "正在读取会话；已打开过的会话会保留在这里。" : "暂无会话。请先在电脑上打开 DogO 设备插件并创建会话。", 15, ui.muted, false);
             sessionRows.addView(empty, ui.spaced(12));
             return;
         }
-        for (int i = 0; i < entries.length(); i++) {
-            JSONObject item = entries.optJSONObject(i);
+        int shown = 0;
+        for (int i = 0; i < currentEntries.length(); i++) {
+            JSONObject item = currentEntries.optJSONObject(i);
             if (item == null) continue;
             String device = item.optString("device"), session = item.optString("sessionId");
             if (device.isEmpty() || session.isEmpty()) continue;
+            String key = device + "\n" + item.optString("workspaceId");
+            if (projectFilterKey.equals("@ungrouped") && (!item.optBoolean("projectKnown") || !item.optString("workspaceId").isEmpty())) continue;
+            if (!projectFilterKey.startsWith("@") && !projectFilterKey.equals(key)) continue;
+            shown++;
             LinearLayout card = ui.column();
             card.setPadding(dp(18), dp(16), dp(18), dp(16));
             card.setBackground(ui.ripple(ui.surface, 18));
             TextView title = ui.text(item.optString("title", "新会话"), 17, ui.text, true);
             card.addView(title, ui.spaced(8));
             String preview = remote.cached(scope(), device, session).optString("preview", item.optString("preview"));
-            TextView excerpt = ui.text(preview.isEmpty() ? "打开查看最近消息" : preview.replace('\n', ' '), 14, ui.muted, false);
+            String excerptText = preview.isEmpty() ? "打开查看最近消息" : markdown.toMarkdown(preview).toString().replace('\n', ' ');
+            TextView excerpt = ui.text(excerptText, 14, ui.muted, false);
             excerpt.setMaxLines(2);
             excerpt.setEllipsize(android.text.TextUtils.TruncateAt.END);
             card.addView(excerpt, ui.spaced(8));
             String state = cached ? "状态待更新" : item.optBoolean("online") ? "在线" : "离线或状态未知";
             String timestamp = date(item.opt("updatedAt"));
-            TextView meta = ui.text(item.optString("deviceName", "电脑") + " · " + state + (timestamp.isEmpty() ? "" : " · " + timestamp), 12, ui.muted, false);
+            TextView meta = ui.text(item.optString("projectName", "项目未知") + " · " + item.optString("deviceName", "电脑") + " · " + state + (timestamp.isEmpty() ? "" : " · " + timestamp), 12, ui.muted, false);
             card.addView(meta);
             card.setOnClickListener(v -> openChat(device, session, item.optString("deviceName", "电脑"), item.optString("title", "会话")));
             sessionRows.addView(card, ui.spaced(10));
         }
+        if (shown == 0) sessionRows.addView(ui.text("此项目暂无已加载的会话。", 15, ui.muted, false));
     }
     private String date(Object value) {
         try {
@@ -351,11 +415,14 @@ public final class MainActivity extends Activity {
         String account = scope();
         say("正在更新会话…");
         background(() -> remote.list(account), result -> {
+            setProjects(result.optJSONArray("projects"));
             renderSessions(result.optJSONArray("items"), false);
             say(result.optBoolean("incomplete") ? "部分会话暂时无法读取，可稍后刷新。" : "");
             loadPreview(result.optJSONArray("items"), 0, account);
         }, error -> {
-            renderSessions(remote.cachedList(account).optJSONArray("items"), true);
+            JSONObject cached = remote.cachedList(account);
+            setProjects(cached.optJSONArray("projects"));
+            renderSessions(cached.optJSONArray("items"), true);
             say("暂时无法连接服务，显示已保存的会话。");
             if (store.session() == null) { showLogin(); say("登录已失效，请重新登录。"); }
         });
@@ -373,13 +440,37 @@ public final class MainActivity extends Activity {
     }
     private void openChat(String device, String session, String name, String title) {
         selectedDevice = device; selectedSession = session; selectedName = name; selectedTitle = title;
+        expandedMessages.clear();
+        selectedModel = remote.cached(scope(), device, session).optJSONObject("selection");
+        modelCatalog = remote.cachedCatalog(scope(), device);
+        if (selectedModel == null && modelCatalog != null) selectedModel = modelCatalog.optJSONObject("default");
+        applyingModel = false;
         autoRetriedId = "";
         hostOnline = false; stateKnown = false; sessionRunning = false; renderedMessages = "";
         screen = "chat";
         page(title, name);
-        button("‹ 最近会话", 0, this::showSessions);
-        chatStatus = label("电脑状态待更新 · 会话状态未知", 13);
-        chatStatus.setTextColor(ui.muted);
+        markdown = MarkdownRenderer.create(this);
+        root.removeViewAt(0);
+        if (!name.isEmpty()) root.removeViewAt(0);
+        root.setPadding(dp(16), dp(8), dp(16), dp(16));
+        LinearLayout top = (LinearLayout) shell.getChildAt(0);
+        top.removeAllViews();
+        Button back = ui.button("‹", false, false);
+        back.setContentDescription("返回最近会话");
+        back.setTextSize(24);
+        back.setPadding(0, 0, 0, 0);
+        top.addView(back, new LinearLayout.LayoutParams(dp(48), dp(48)));
+        back.setOnClickListener(v -> showSessions());
+        LinearLayout heading = ui.column();
+        heading.setPadding(dp(12), 0, 0, 0);
+        TextView chatTitle = ui.text(title, 18, ui.text, true);
+        chatTitle.setSingleLine(true); chatTitle.setEllipsize(android.text.TextUtils.TruncateAt.END);
+        heading.addView(chatTitle);
+        TextView chatDevice = ui.text(name, 12, ui.muted, false);
+        chatDevice.setSingleLine(true); chatDevice.setEllipsize(android.text.TextUtils.TruncateAt.END);
+        heading.addView(chatDevice);
+        top.addView(heading, new LinearLayout.LayoutParams(0, -2, 1));
+        chatStatus = ui.text("电脑状态待更新 · 会话状态未知", 12, ui.muted, false);
         pendingStatus = label("", 13);
         pendingStatus.setTextColor(ui.muted);
         pendingStatus.setTextIsSelectable(true);
@@ -388,6 +479,12 @@ public final class MainActivity extends Activity {
         LinearLayout composer = ui.column();
         composer.setPadding(dp(16), dp(8), dp(16), dp(12));
         composer.setBackgroundColor(ui.surface);
+        composer.addView(chatStatus, ui.spaced(6));
+        modelButton = ui.button("选择模型与思考强度 ▾", false, false);
+        modelButton.setId(R.id.model_button);
+        modelButton.setGravity(android.view.Gravity.START | android.view.Gravity.CENTER_VERTICAL);
+        composer.addView(modelButton, ui.spaced(6));
+        modelButton.setOnClickListener(v -> loadModels());
         chatInput = new EditText(this);
         chatInput.setId(R.id.chat_input);
         chatInput.setSaveEnabled(false);
@@ -451,12 +548,39 @@ public final class MainActivity extends Activity {
             JSONObject item = messages.optJSONObject(i);
             if (item == null) continue;
             String role = item.optString("role"), text = item.optString("text");
-            TextView bubble = ui.text((role.equals("user") ? "你" : role.equals("assistant") ? "AI" : "进度") + "\n" + text,
-                    15, ui.text, false);
-            bubble.setTextIsSelectable(true);
-            bubble.setPadding(dp(16), dp(14), dp(16), dp(14));
-            bubble.setBackground(ui.shape(role.equals("user") ? ui.tint : ui.surface, 16, 0));
-            chatMessages.addView(bubble, ui.spaced(10));
+            String id = item.optString("id", "index-" + i) + ":" + role;
+            LinearLayout card = ui.column();
+            card.setPadding(dp(16), dp(14), dp(16), dp(10));
+            card.setBackground(ui.shape(role.equals("user") ? ui.tint : ui.surface, 16, 0));
+            TextView who = ui.text(role.equals("user") ? "你" : role.equals("assistant") ? "AI" : "进度", 12, ui.muted, true);
+            TextView body = ui.text("", 15, ui.text, false);
+            body.setTextIsSelectable(true);
+            if (role.equals("status")) body.setText(text); else markdown.setMarkdown(body, text);
+            body.setMaxLines(expandedMessages.contains(id) ? Integer.MAX_VALUE : 8);
+            body.setEllipsize(android.text.TextUtils.TruncateAt.END);
+            Button expand = ui.button(expandedMessages.contains(id) ? "收起" : "展开", false, false);
+            expand.setId(R.id.expand_message);
+            expand.setMinHeight(dp(40)); expand.setMinimumHeight(dp(40));
+            expand.setPadding(dp(10), dp(4), dp(10), dp(4));
+            expand.setTextSize(13);
+            boolean likelyLong = text.length() > 240 || text.chars().filter(c -> c == '\n').count() >= 8;
+            expand.setVisibility(expandedMessages.contains(id) || likelyLong ? View.VISIBLE : View.GONE);
+            expand.setOnClickListener(v -> {
+                if (expandedMessages.remove(id)) { body.setMaxLines(8); expand.setText("展开"); }
+                else { expandedMessages.add(id); body.setMaxLines(Integer.MAX_VALUE); expand.setText("收起"); }
+            });
+            LinearLayout header = ui.row();
+            header.addView(who, new LinearLayout.LayoutParams(0, -2, 1));
+            header.addView(expand, new LinearLayout.LayoutParams(-2, -2));
+            card.addView(header, ui.spaced(8));
+            card.addView(body, ui.spaced(4));
+            body.addOnLayoutChangeListener((v, left, top, right, bottom, oldLeft, oldTop, oldRight, oldBottom) -> {
+                android.text.Layout layout = body.getLayout();
+                int lines = layout == null ? 0 : layout.getLineCount();
+                if (lines > 8 || (lines == 8 && (layout.getEllipsisCount(7) > 0 || layout.getLineEnd(7) < body.length())))
+                    expand.setVisibility(View.VISIBLE);
+            });
+            chatMessages.addView(card, ui.spaced(10));
         }
         TextView note = ui.text("显示电脑返回的最近消息。", 12, ui.muted, false);
         chatMessages.addView(note);
@@ -466,8 +590,11 @@ public final class MainActivity extends Activity {
         if (!screen.equals("chat") || chatInput == null) return;
         JSONObject cached = remote.cached(scope(), selectedDevice, selectedSession);
         JSONObject pending = cached.optJSONObject("pending");
-        chatStatus.setText((hostOnline ? "电脑在线" : "电脑离线或连接未知") + " · "
-                + (!stateKnown ? "会话状态未知" : sessionRunning ? "正在执行" : "可以继续"));
+        String status = (hostOnline ? "电脑在线" : "电脑离线或连接未知") + " · "
+                + (!stateKnown ? "会话状态未知" : sessionRunning ? "正在执行" : "可以继续");
+        if (pending != null) status += " · 消息待确认";
+        else if (cached.optBoolean("accepted")) status += " · 电脑已收到上一条消息";
+        chatStatus.setText(status);
         StringBuilder notice = new StringBuilder();
         if (pending != null) notice.append("发送结果未确认，原消息已保存：\n").append(pending.optString("text"));
         else if (cached.optBoolean("accepted")) notice.append("电脑已收到上一条消息");
@@ -481,6 +608,22 @@ public final class MainActivity extends Activity {
         pendingStatus.setText(notice.toString());
         pendingStatus.setVisibility(notice.length() > 0 ? View.VISIBLE : View.GONE);
         boolean ready = foreground && hostOnline && stateKnown && !sessionRunning && !remoteInFlight;
+        String model = selectedModel == null ? "" : selectedModel.optString("model");
+        String effort = selectedModel == null ? "" : selectedModel.optString("reasoningEffort");
+        for (JSONObject option : RemoteSessions.modelOptions(modelCatalog)) {
+            if (!option.optString("provider").equals(selectedModel == null ? "" : selectedModel.optString("provider"))
+                    || !option.optString("model").equals(model)) continue;
+            model = option.optString("label", model);
+            JSONObject reasoning = option.optJSONObject("reasoning");
+            JSONArray efforts = reasoning == null ? null : reasoning.optJSONArray("efforts");
+            if (efforts != null) for (int i = 0; i < efforts.length(); i++) {
+                JSONObject choice = efforts.optJSONObject(i);
+                if (choice != null && choice.optString("id").equals(effort)) { effort = choice.optString("name", effort); break; }
+            }
+            break;
+        }
+        modelButton.setText(model.isEmpty() ? "选择模型与思考强度 ▾" : model + (effort.isEmpty() ? "" : " · " + effort) + " ▾");
+        modelButton.setEnabled(foreground && hostOnline && stateKnown && pending == null && !applyingModel);
         sendButton.setEnabled(ready && pending == null && !chatInput.getText().toString().trim().isEmpty());
         retryButton.setVisibility(pending == null ? View.GONE : View.VISIBLE);
         retryButton.setEnabled(ready && pending != null);
@@ -493,6 +636,7 @@ public final class MainActivity extends Activity {
         background(() -> remote.detail(account, device, session), result -> {
             hostOnline = result.optBoolean("online"); stateKnown = result.optBoolean("known");
             sessionRunning = result.optBoolean("running");
+            if (!applyingModel && result.optJSONObject("selection") != null) selectedModel = result.optJSONObject("selection");
             if (result.has("messages")) renderChat(result.optJSONArray("messages"));
             updateChatControls();
             JSONObject pending = remote.cached(account, device, session).optJSONObject("pending");
@@ -510,6 +654,150 @@ public final class MainActivity extends Activity {
             if (foreground && screen.equals("chat")) main.postDelayed(poll, 4000);
         });
         updateChatControls();
+    }
+    private void loadModels() {
+        if (!foreground || !screen.equals("chat") || !hostOnline || !stateKnown) return;
+        if (remoteInFlight) { say("正在刷新会话，请稍后选择模型。"); return; }
+        main.removeCallbacks(poll);
+        String account = scope(), device = selectedDevice;
+        say("正在读取电脑的模型列表…");
+        background(() -> {
+            JSONObject catalog = remote.remote(device, "models", new JSONObject());
+            remote.cacheCatalog(account, device, catalog);
+            return catalog;
+        }, catalog -> {
+            say(""); modelCatalog = catalog;
+            if (selectedModel == null) selectedModel = catalog.optJSONObject("default");
+            updateChatControls();
+            showModelDialog(catalog);
+        }, error -> {
+            say("无法读取电脑的模型列表，请检查电脑连接后重试。");
+            updateChatControls();
+            if (foreground && screen.equals("chat")) main.postDelayed(poll, 4000);
+        });
+        updateChatControls();
+    }
+    private void showModelDialog(JSONObject catalog) {
+        ArrayList<JSONObject> models = RemoteSessions.modelOptions(catalog);
+        if (models.isEmpty()) {
+            say("电脑没有返回可用模型，请在电脑端检查模型配置。");
+            if (foreground && screen.equals("chat")) main.postDelayed(poll, 4000);
+            return;
+        }
+        JSONObject current = selectedModel != null ? selectedModel : catalog.optJSONObject("default");
+        int currentIndex = 0;
+        boolean currentFound = false;
+        ArrayList<String> names = new ArrayList<>();
+        for (int i = 0; i < models.size(); i++) {
+            JSONObject model = models.get(i);
+            names.add(model.optString("label"));
+            if (current != null && current.optString("provider").equals(model.optString("provider"))
+                    && current.optString("model").equals(model.optString("model"))) { currentIndex = i; currentFound = true; }
+        }
+        if (current != null && !current.optString("model").isEmpty() && !currentFound) {
+            String unavailable = "当前不可用：" + current.optString("provider") + " / " + current.optString("model");
+            models.add(0, Json.of("provider", current.optString("provider"), "model", current.optString("model"), "label", unavailable, "unavailable", true));
+            names.add(0, unavailable);
+            currentIndex = 0;
+        }
+        LinearLayout content = ui.column();
+        content.setPadding(dp(24), dp(8), dp(24), dp(8));
+        TextView modelLabel = ui.text("执行模型", 13, ui.muted, true);
+        content.addView(modelLabel, ui.spaced(8));
+        Spinner modelPicker = new Spinner(this);
+        modelPicker.setId(R.id.model_spinner);
+        ArrayAdapter<String> adapter = new ArrayAdapter<>(this, android.R.layout.simple_spinner_item, names);
+        adapter.setDropDownViewResource(android.R.layout.simple_spinner_dropdown_item);
+        modelPicker.setAdapter(adapter);
+        modelPicker.setBackground(ui.spinnerBackground());
+        modelPicker.setPadding(dp(12), dp(8), dp(36), dp(8));
+        content.addView(modelPicker, new LinearLayout.LayoutParams(-1, dp(52)));
+        TextView effortLabel = ui.text("思考强度", 13, ui.muted, true);
+        effortLabel.setPadding(0, dp(16), 0, dp(8));
+        content.addView(effortLabel);
+        Spinner effortPicker = new Spinner(this);
+        effortPicker.setId(R.id.effort_spinner);
+        effortPicker.setBackground(ui.spinnerBackground());
+        effortPicker.setPadding(dp(12), dp(8), dp(36), dp(8));
+        content.addView(effortPicker, new LinearLayout.LayoutParams(-1, dp(52)));
+        TextView noEfforts = ui.text("此模型没有可选的思考强度", 13, ui.muted, false);
+        content.addView(noEfforts, ui.spaced(8));
+        TextView note = ui.text("会同步修改电脑的默认模型，从下次发送开始生效。", 12, ui.muted, false);
+        note.setPadding(0, dp(14), 0, 0);
+        content.addView(note);
+        ArrayList<String> effortIds = new ArrayList<>();
+        JSONObject chosen = current;
+        modelPicker.setOnItemSelectedListener(new AdapterView.OnItemSelectedListener() {
+            public void onNothingSelected(AdapterView<?> parent) {}
+            public void onItemSelected(AdapterView<?> parent, View view, int position, long id) {
+                JSONObject option = models.get(position), reasoning = option.optJSONObject("reasoning");
+                JSONArray efforts = reasoning == null ? null : reasoning.optJSONArray("efforts");
+                ArrayList<String> effortNames = new ArrayList<>();
+                effortIds.clear();
+                String fallback = reasoning == null ? "" : reasoning.optString("defaultEffort", "");
+                if (fallback.isEmpty()) { effortIds.add(""); effortNames.add("模型默认"); }
+                if (efforts != null) for (int i = 0; i < efforts.length(); i++) {
+                    JSONObject item = efforts.optJSONObject(i);
+                    if (item == null || item.optString("id").isEmpty()) continue;
+                    effortIds.add(item.optString("id"));
+                    effortNames.add(item.optString("name", item.optString("id")));
+                }
+                boolean supported = efforts != null && efforts.length() > 0 && !effortNames.isEmpty();
+                effortLabel.setVisibility(supported ? View.VISIBLE : View.GONE);
+                effortPicker.setVisibility(supported ? View.VISIBLE : View.GONE);
+                noEfforts.setText(option.optBoolean("unavailable") ? "请另选电脑当前可用的模型。" : "此模型没有可选的思考强度");
+                noEfforts.setVisibility(supported ? View.GONE : View.VISIBLE);
+                ArrayAdapter<String> effortAdapter = new ArrayAdapter<>(MainActivity.this, android.R.layout.simple_spinner_item, effortNames);
+                effortAdapter.setDropDownViewResource(android.R.layout.simple_spinner_dropdown_item);
+                effortPicker.setAdapter(effortAdapter);
+                String selected = chosen != null && chosen.optString("provider").equals(option.optString("provider"))
+                        && chosen.optString("model").equals(option.optString("model"))
+                        ? chosen.optString("reasoningEffort", fallback) : fallback;
+                int index = effortIds.indexOf(selected);
+                if (index >= 0) effortPicker.setSelection(index);
+            }
+        });
+        modelPicker.setSelection(currentIndex);
+        int version = generation;
+        AlertDialog dialog = new AlertDialog.Builder(this).setTitle("模型与思考强度").setView(content)
+                .setNegativeButton("取消", null).setPositiveButton("应用", null).create();
+        dialog.setOnDismissListener(ignored -> {
+            if (!applyingModel && foreground && version == generation && screen.equals("chat")) {
+                main.removeCallbacks(poll); main.postDelayed(poll, 4000);
+            }
+        });
+        dialog.setOnShowListener(ignored -> dialog.getButton(AlertDialog.BUTTON_POSITIVE).setOnClickListener(v -> {
+            if (remoteInFlight || applyingModel) return;
+            int index = modelPicker.getSelectedItemPosition();
+            if (index < 0 || index >= models.size()) return;
+            JSONObject option = models.get(index);
+            if (option.optBoolean("unavailable")) { noEfforts.setText("请先选择电脑当前可用的模型。"); return; }
+            JSONObject args = Json.of("sessionId", selectedSession, "provider", option.optString("provider"), "model", option.optString("model"));
+            int effortIndex = effortPicker.getSelectedItemPosition();
+            if (effortPicker.getVisibility() == View.VISIBLE && effortIndex >= 0 && effortIndex < effortIds.size()
+                    && !effortIds.get(effortIndex).isEmpty()) Json.put(args, "reasoningEffort", effortIds.get(effortIndex));
+            String account = scope(), device = selectedDevice, session = selectedSession;
+            applyingModel = true;
+            dialog.dismiss();
+            say("正在同步模型选择…");
+            background(() -> {
+                JSONObject result = remote.remote(device, "selectModel", args);
+                JSONObject selected = result.optJSONObject("selected");
+                if (selected == null) throw new IllegalStateException("电脑未确认模型选择");
+                remote.selection(account, device, session, selected);
+                return selected;
+            }, result -> {
+                selectedModel = result; applyingModel = false;
+                say("模型已更新，下次发送生效。"); updateChatControls();
+                if (foreground && screen.equals("chat")) main.postDelayed(poll, 4000);
+            }, error -> {
+                applyingModel = false; stateKnown = false; updateChatControls();
+                say("暂未确认模型是否更新，请刷新后重试。");
+                if (foreground && screen.equals("chat")) main.postDelayed(poll, 1000);
+            });
+            updateChatControls();
+        }));
+        dialog.show();
     }
     private void sendMessage(boolean retry) {
         if (remoteInFlight || !foreground || !hostOnline || !stateKnown || sessionRunning) return;

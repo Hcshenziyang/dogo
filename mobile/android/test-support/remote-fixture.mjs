@@ -17,9 +17,13 @@ await post('/api/auth/register', { username: 'synthetic-user', password, invite_
 const login = await post('/api/auth/login', {
   username: 'synthetic-user', password, device_id: 'synthetic-mac', device_name: 'Synthetic Mac', device_kind: 'desktop',
 });
-let running = false, attempts = 0, executions = 0;
+let running = false, attempts = 0, executions = 0, modelChanges = 0;
+let selection = { provider: 'fixture-provider', model: 'fixture-main', reasoningEffort: 'low' };
 const ids = [], requests = new Map();
-const records = [{ event: { type: 'user/message', data: { source: { kind: 'user' }, content: [{ type: 'text', text: '原有上下文' }] } } }];
+const records = [
+  { event: { seq: 1, type: 'user/message', data: { source: { kind: 'user' }, content: [{ type: 'text', text: '原有上下文' }] } } },
+  { event: { seq: 2, type: 'assistant/message', data: { message: { content: [{ type: 'text', text: '**加粗**\n' + '这是很长的回复，用于验证折叠和展开。\n'.repeat(24) }] } } } },
+];
 const connect = () => {
   const socket = new WebSocket('ws://127.0.0.1:18789/api/device/connect', {
     headers: { Authorization: `Bearer ${login.access_token}` },
@@ -33,7 +37,20 @@ const connect = () => {
     const { method, args } = message.call;
     let value;
     if (method === 'list') value = { items: [{ sessionId: 'synthetic-session', title: '测试远程会话', running, updatedAt: Date.now() }] };
-    else if (method === 'snapshot') value = { type: 'snapshot', records };
+    else if (method === 'workspaces') value = { items: [
+      { workspaceId: 'project-1', title: '测试项目', sessionIds: ['synthetic-session'] },
+      { workspaceId: 'empty-project', title: '空项目', sessionIds: [] },
+    ] };
+    else if (method === 'models') value = { default: selection, groups: [{ id: 'fixture-provider', name: 'Synthetic', models: [
+      { id: 'fixture-main', name: 'Fixture Main', reasoning: { defaultEffort: 'low', efforts: [{ id: 'low', name: '低' }, { id: 'high', name: '高' }] } },
+      { id: 'fixture-alt', name: 'Fixture Alt', reasoning: { defaultEffort: 'low', efforts: [{ id: 'low', name: '低' }, { id: 'high', name: '高' }] } },
+    ] }], failures: [] };
+    else if (method === 'selectModel') {
+      selection = { provider: args.provider, model: args.model, ...(args.reasoningEffort ? { reasoningEffort: args.reasoningEffort } : {}) };
+      modelChanges++;
+      value = { selected: selection };
+    }
+    else if (method === 'snapshot') value = { type: 'snapshot', records, projections: { values: { modelSelection: { next: selection } } } };
     else if (method === 'prompt') {
       attempts++;
       ids.push(args.requestId);
@@ -58,5 +75,5 @@ const connect = () => {
 };
 createServer((_request, response) => {
   response.writeHead(200, { 'Content-Type': 'application/json' });
-  response.end(JSON.stringify({ fixture: 'dogo-synthetic-v1', attempts, executions, ids, running }));
+  response.end(JSON.stringify({ fixture: 'dogo-synthetic-v1', attempts, executions, ids, running, selection, modelChanges }));
 }).listen(18790, '127.0.0.1', connect);

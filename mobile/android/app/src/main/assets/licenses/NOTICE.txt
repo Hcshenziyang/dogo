@@ -1,0 +1,7 @@
+This application includes Markwon 4.6.2 (core, strikethrough, tables and task lists),
+available at https://github.com/noties/Markwon under the Apache License 2.0.
+
+It also includes commonmark-java 0.13.0 and its GFM extensions, available at
+https://github.com/commonmark/commonmark-java under the BSD 2-Clause license.
+
+The corresponding license texts are provided in this directory.

@@ -91,4 +91,54 @@ public class RemoteSessionsTest {
         });
         assertFalse(remote.detail("a", "mac", "session").optBoolean("known"));
     }
+    @Test public void projectsMapSessionsAndRemainAvailableOffline() throws Exception {
+        Memory memory = new Memory();
+        final boolean[] online = {true}, projectsAvailable = {true};
+        RemoteSessions remote = new RemoteSessions(memory, (method, path, body) -> {
+            if (path.equals("/api/devices")) return Json.of("items", new JSONArray().put(Json.of("id", "mac", "name", "Mac", "kind", "desktop", "active", true, "online", online[0])));
+            if (body.optString("method").equals("workspaces")) {
+                if (!projectsAvailable[0]) throw new IOException("workspace unavailable");
+                return Json.of("value", Json.of("items", new JSONArray()
+                        .put(Json.of("workspaceId", "p1", "title", "Project", "sessionIds", new JSONArray().put("s1")))
+                        .put(Json.of("workspaceId", "p2", "title", "Empty", "sessionIds", new JSONArray()))));
+            }
+            return Json.of("value", Json.of("items", new JSONArray()
+                    .put(Json.of("sessionId", "s1", "running", false))
+                    .put(Json.of("sessionId", "s2", "running", false))));
+        });
+        JSONObject first = remote.list("a");
+        assertEquals(2, first.getJSONArray("projects").length());
+        assertEquals("Project", first.getJSONArray("items").getJSONObject(0).optString("projectName"));
+        assertEquals("未分组", first.getJSONArray("items").getJSONObject(1).optString("projectName"));
+        projectsAvailable[0] = false;
+        JSONObject partial = remote.list("a");
+        assertTrue(partial.optBoolean("incomplete"));
+        assertEquals("p1", partial.getJSONArray("items").getJSONObject(0).optString("workspaceId"));
+        online[0] = false;
+        JSONObject offline = remote.list("a");
+        assertEquals(2, offline.getJSONArray("projects").length());
+        assertEquals("Project", offline.getJSONArray("items").getJSONObject(0).optString("projectName"));
+    }
+    @Test public void modelOptionsPreserveProviderAndReasoningChoices() throws Exception {
+        JSONObject reasoning = Json.of("defaultEffort", "low", "efforts", new JSONArray().put(Json.of("id", "high", "name", "高")));
+        JSONObject catalog = Json.of("groups", new JSONArray().put(Json.of("id", "provider", "name", "Provider", "models", new JSONArray()
+                .put(Json.of("id", "m1", "name", "Model One", "reasoning", reasoning))
+                .put(Json.of("id", "m2", "name", "Model Two")))));
+        java.util.ArrayList<JSONObject> options = RemoteSessions.modelOptions(catalog);
+        assertEquals(2, options.size());
+        assertEquals("provider", options.get(0).optString("provider"));
+        assertEquals("Provider · Model One", options.get(0).optString("label"));
+        assertEquals("high", options.get(0).getJSONObject("reasoning").getJSONArray("efforts").getJSONObject(0).optString("id"));
+        RemoteSessions remote = new RemoteSessions(new Memory(), (method, path, body) -> new JSONObject());
+        remote.cacheCatalog("account-a", "mac", catalog);
+        assertEquals(2, RemoteSessions.modelOptions(remote.cachedCatalog("account-a", "mac")).size());
+        assertNull(remote.cachedCatalog("account-b", "mac"));
+    }
+    @Test public void longMessageKeepsFullTextAndStableSequence() throws Exception {
+        String text = "long ".repeat(6000);
+        JSONObject event = Json.of("seq", 123, "type", "assistant/message", "data", Json.of("message", Json.of("content", new JSONArray().put(Json.of("type", "text", "text", text)))));
+        JSONObject message = RemoteSessions.conversation(Json.of("records", new JSONArray().put(Json.of("event", event)))).getJSONObject(0);
+        assertEquals("123", message.optString("id"));
+        assertEquals(text, message.optString("text"));
+    }
 }
