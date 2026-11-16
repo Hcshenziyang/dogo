@@ -1,5 +1,5 @@
 import { afterEach, describe, expect, it } from 'vitest';
-import { mkdtemp, readFile, rm, symlink, writeFile } from 'node:fs/promises';
+import { mkdir, mkdtemp, readFile, rm, symlink, writeFile } from 'node:fs/promises';
 import { join } from 'node:path';
 import { tmpdir } from 'node:os';
 import { WorkspaceStore } from '../workspace/store.js';
@@ -213,6 +213,61 @@ describe('local knowledge workspace', () => {
 });
 
 describe('workspace image attachments', () => {
+  it('lists supported image files and reads literal paths without changing notes or tasks', async () => {
+    const { store, root, tmp } = await setup();
+    const png = Buffer.from('89504e470d0a1a0a00000000', 'hex');
+    await mkdir(join(root, 'images'));
+    await writeFile(join(root, 'images', '截图%20 1.PNG'), png);
+    await writeFile(join(root, 'images', 'photo.jpg'), Buffer.from('ffd8ff00', 'hex'));
+    await writeFile(join(root, 'images', 'other.svg'), '<svg/>');
+    await writeFile(join(tmp, 'external.png'), png);
+    await symlink(join(tmp, 'external.png'), join(root, 'images', 'link.png'));
+    const list = await store.control('list');
+    expect(list.images.map((image: any) => image.id).sort()).toEqual([
+      'images/photo.jpg',
+      'images/截图%20 1.PNG',
+    ]);
+    expect(list.documents.every((document: any) => document.kind !== 'image')).toBe(true);
+    expect(list.tasks.length).toBeGreaterThan(0);
+    const image = await store.control('image-read', {
+      path: 'images/截图%20 1.PNG',
+      literalPath: true,
+    });
+    expect(Buffer.from(image.data, 'base64')).toEqual(png);
+    await expect(
+      store.control('image-read', { path: 'images/link.png', literalPath: true }),
+    ).rejects.toThrow();
+    await expect(
+      store.control('image-read', { path: '../external.png', literalPath: true }),
+    ).rejects.toThrow();
+  });
+  it('sends the open image identity as page context without including image bytes', async () => {
+    const { store, root } = await setup();
+    await writeFile(join(root, '截图%20.png'), Buffer.from('89504e470d0a1a0a', 'hex'));
+    await store.control('bind-session', { id: 'image-session' });
+    const input = {
+      sessionId: 'image-session',
+      owner: 'image-window',
+      selection: 'follow',
+      current: { kind: 'image', id: '截图%20.png', title: '截图%20.png' },
+    };
+    const result = await store.control('set-page-context', input);
+    expect(result.current).toEqual(input.current);
+    expect(result.reference).toEqual(input.current);
+    expect(JSON.stringify(result)).not.toContain('89504e47');
+    await expect(
+      store.control('set-page-context', {
+        ...input,
+        current: { kind: 'image', id: '../截图%20.png' },
+      }),
+    ).rejects.toThrow();
+    await expect(
+      store.control('set-page-context', {
+        ...input,
+        current: { kind: 'image', id: 'missing.png' },
+      }),
+    ).rejects.toThrow();
+  });
   it('stores chunked images without overwriting and reads them after restart', async () => {
     const { store, root } = await setup();
     const png = Buffer.concat([Buffer.from('89504e470d0a1a0a', 'hex'), Buffer.alloc(530000, 42)]);

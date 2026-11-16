@@ -14,12 +14,12 @@ const imageTypes: Record<string, string> = {
   '.webp': 'image/webp',
 };
 
-function imagePath(value: unknown, documentId?: unknown): string[] {
+function imagePath(value: unknown, documentId?: unknown, literalPath = false): string[] {
   if (typeof value !== 'string' || value.length > 1024 || /[\\\0]/.test(value))
     throw Error('图片路径无效。');
   let decoded: string;
   try {
-    decoded = decodeURIComponent(value);
+    decoded = literalPath ? value : decodeURIComponent(value);
   } catch {
     throw Error('图片路径无效。');
   }
@@ -94,7 +94,7 @@ interface Task {
   revision: string;
 }
 export type WorkspacePage =
-  | { kind: 'note' | 'canvas'; id: string; title: string }
+  | { kind: 'note' | 'canvas' | 'image'; id: string; title: string }
   | { kind: 'tasks' | 'none' };
 export interface WorkspacePageContext {
   current: WorkspacePage;
@@ -373,10 +373,12 @@ export class WorkspaceStore {
     tasks: Task[];
     skipped: string[];
     folders: string[];
+    images: { id: string; title: string; kind: 'image' }[];
   }> {
     const docs: DocumentData[] = [];
     const skipped: string[] = [];
     const folders: string[] = [];
+    const images: { id: string; title: string; kind: 'image' }[] = [];
     const walk = async (prefix: string, depth: number): Promise<void> => {
       let entries;
       try {
@@ -398,6 +400,8 @@ export class WorkspaceStore {
           } catch {
             skipped.push(id);
           }
+        } else if (entry.isFile() && imageTypes[extname(entry.name).toLowerCase()]) {
+          images.push({ id, title: entry.name, kind: 'image' });
         }
       }
     };
@@ -408,6 +412,7 @@ export class WorkspaceStore {
       tasks: docs.flatMap(parseTasks),
       skipped,
       folders,
+      images,
     };
   }
   private async safePath(id: string): Promise<string> {
@@ -428,6 +433,7 @@ export class WorkspaceStore {
   private async imageFile(
     value: unknown,
     documentId?: unknown,
+    literalPath = false,
   ): Promise<{ path: string; type: string }> {
     const locate = async (parts: string[]) => {
       let path = this.directory;
@@ -438,11 +444,11 @@ export class WorkspaceStore {
       return { path, type: imageTypes[extname(path).toLowerCase()]! };
     };
     try {
-      return await locate(imagePath(value, documentId));
+      return await locate(imagePath(value, documentId, literalPath));
     } catch (error) {
       if (!documentId || (error as NodeJS.ErrnoException).code !== 'ENOENT') throw error;
       try {
-        return await locate(imagePath(value));
+        return await locate(imagePath(value, undefined, literalPath));
       } catch (rootError) {
         if (
           (rootError as NodeJS.ErrnoException).code !== 'ENOENT' ||
@@ -450,7 +456,7 @@ export class WorkspaceStore {
           value.includes('/')
         )
           throw rootError;
-        const name = imagePath(value)[0]!;
+        const name = imagePath(value, undefined, literalPath)[0]!;
         const matches: string[] = [];
         const find = async (prefix: string, depth: number): Promise<void> => {
           if (matches.length > 1 || depth > 64) return;
@@ -466,7 +472,7 @@ export class WorkspaceStore {
         await find('', 0);
         if (matches.length !== 1)
           throw Error(matches.length ? '存在多个同名图片，请使用相对路径。' : '未找到图片。');
-        return locate(imagePath(matches[0]));
+        return locate(imagePath(matches[0], undefined, literalPath));
       }
     }
   }
@@ -478,6 +484,16 @@ export class WorkspaceStore {
   }
   private async page(value: any): Promise<WorkspacePage> {
     if (value?.kind === 'tasks' || value?.kind === 'none') return { kind: value.kind };
+    if (value?.kind === 'image') {
+      const parts = imagePath(value.id, undefined, true);
+      if (parts.join('/') !== value.id) throw Error('图片路径无效。');
+      const { path } = await this.imageFile(value.id, undefined, true);
+      if (!(await lstat(path)).isFile()) throw Error('图片不是普通文件。');
+      const title =
+        value.title === undefined ? basename(value.id) : bounded(value.title, '页面标题', 400);
+      if (/[\r\n\0]/.test(title)) throw Error('页面标题无效。');
+      return { kind: 'image', id: value.id, title };
+    }
     if (value?.kind !== 'note' && value?.kind !== 'canvas') throw Error('页面类型无效。');
     const doc = await this.readDocument(value.id);
     if (doc.kind !== value.kind) throw Error('页面类型与文件不匹配。');
@@ -490,7 +506,11 @@ export class WorkspaceStore {
     return this.serial(async () => {
       switch (method) {
         case 'image-read': {
-          const { path, type } = await this.imageFile(payload.path, payload.documentId);
+          const { path, type } = await this.imageFile(
+            payload.path,
+            payload.documentId,
+            payload.literalPath === true,
+          );
           const f = await open(path, constants.O_RDONLY | (constants.O_NOFOLLOW || 0));
           try {
             const info = await f.stat();

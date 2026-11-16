@@ -23,6 +23,25 @@ window.__ModuleLoader__.load({
     const React = require('react'),
       h = React.createElement;
     const { Icon } = createUI(React);
+    const ImageIcon = () =>
+      h(
+        'svg',
+        {
+          width: 15,
+          height: 15,
+          viewBox: '0 0 24 24',
+          fill: 'none',
+          stroke: 'currentColor',
+          strokeWidth: 1.65,
+          strokeLinecap: 'round',
+          strokeLinejoin: 'round',
+          className: 'dw-icon',
+          'aria-hidden': true,
+        },
+        h('rect', { x: 4, y: 4, width: 16, height: 16, rx: 2 }),
+        h('circle', { cx: 8.5, cy: 8.5, r: 1 }),
+        h('path', { d: 'm4 17 5-5 3 3 2-2 6 6' }),
+      );
     const MarkdownEditor = createMarkdownEditor(React);
     const CanvasEditor = createCanvasEditor(React, Icon);
     const PageContext = React.createContext(null);
@@ -248,6 +267,47 @@ window.__ModuleLoader__.load({
         },
       });
     }
+    function ImageViewer({ image, control }: any) {
+      const [src, setSrc] = React.useState('');
+      const [error, setError] = React.useState('');
+      React.useEffect(() => {
+        let alive = true;
+        let url = '';
+        setSrc('');
+        setError('');
+        const read = (method: string, payload: Dict = {}) =>
+          control(method, { ...payload, literalPath: true });
+        void readImage(read, image.id)
+          .then((value) => {
+            if (!alive) {
+              URL.revokeObjectURL(value);
+              return;
+            }
+            url = value;
+            setSrc(value);
+          })
+          .catch((e: unknown) => {
+            if (alive) setError(errorText(e));
+          });
+        return () => {
+          alive = false;
+          if (url) URL.revokeObjectURL(url);
+        };
+      }, [control, image.id]);
+      return h(
+        'div',
+        { className: 'dw-image-view', role: 'region', 'aria-label': '图片预览' },
+        error
+          ? h('div', { className: 'dw-image-error', role: 'alert' }, '无法打开图片：' + error)
+          : src
+            ? h('img', {
+                src,
+                alt: image.title,
+                onError: () => setError('图片无法解码或文件已损坏。'),
+              })
+            : h('span', { className: 'dw-muted', role: 'status' }, '正在加载图片…'),
+      );
+    }
     function FixedChat(props: any) {
       return props.renderSlot('conversation.session', { view: 'chat' });
     }
@@ -271,7 +331,8 @@ window.__ModuleLoader__.load({
             h(
               'option',
               { key: item.id, value: 'doc:' + item.id },
-              (item.kind === 'canvas' ? '画布 · ' : '笔记 · ') + item.title,
+              (item.kind === 'canvas' ? '画布 · ' : item.kind === 'image' ? '图片 · ' : '笔记 · ') +
+                item.title,
             ),
           ),
         ),
@@ -316,6 +377,8 @@ window.__ModuleLoader__.load({
         [listing, setListing] = React.useState({ documents: [], tasks: [] } as Dict);
       const [doc, setDoc] = React.useState(null as Draft | null),
         [mode, setMode] = React.useState('note');
+      const [image, setImage] = React.useState(null as Dict | null),
+        [imageVersion, setImageVersion] = React.useState(0);
       const [search, setSearch] = React.useState(''),
         [filter, setFilter] = React.useState('open'),
         [sourceMode, setSourceMode] = React.useState(false),
@@ -571,6 +634,20 @@ window.__ModuleLoader__.load({
           install(value);
           expandToFile(value.id);
           setMode(value.kind);
+          setShowTree(false);
+          setError('');
+        } finally {
+          if (navigation.current === ticket) setNavigating(false);
+        }
+      }
+      async function openImage(item: Dict) {
+        const ticket = ++navigation.current;
+        setNavigating(true);
+        try {
+          await flush();
+          if (navigation.current !== ticket) return;
+          setImage(item);
+          setMode('image');
           setShowTree(false);
           setError('');
         } finally {
@@ -960,7 +1037,9 @@ window.__ModuleLoader__.load({
         return () => clearTimeout(t);
       }, [notice]);
       const documents = listing.documents as Dict[],
-        tasks = listing.tasks as Dict[];
+        tasks = listing.tasks as Dict[],
+        images = (listing.images || []) as Dict[],
+        pages = [...documents, ...images];
       const documentTitle =
         doc?.kind === 'note'
           ? doc.content.match(/^#[ \t]+([^\r\n]+)\s*$/m)?.[1]?.trim() || doc.id.slice(0, -3)
@@ -968,12 +1047,19 @@ window.__ModuleLoader__.load({
       const currentPage =
         mode === 'tasks'
           ? { kind: 'tasks' }
-          : doc
-            ? { kind: doc.kind, id: doc.id, title: documentTitle }
-            : { kind: 'none' };
-      const currentLabel = mode === 'tasks' ? '待办' : documentTitle || '未打开页面';
+          : mode === 'image' && image
+            ? { kind: 'image', id: image.id, title: image.title }
+            : doc
+              ? { kind: doc.kind, id: doc.id, title: documentTitle }
+              : { kind: 'none' };
+      const currentLabel =
+        mode === 'tasks'
+          ? '待办'
+          : mode === 'image'
+            ? image?.title || '图片'
+            : documentTitle || '未打开页面';
       const chosen = selectedPage.startsWith('doc:')
-        ? documents.find((item) => item.id === selectedPage.slice(4))
+        ? pages.find((item) => item.id === selectedPage.slice(4))
         : null;
       const referencePage =
         selectedPage === 'follow'
@@ -1019,7 +1105,7 @@ window.__ModuleLoader__.load({
         };
       }, [sessionId, contextKey, contextRetry]);
       const contextPending = !!reference && (navigating || syncedContext !== contextKey);
-      const matching = documents.filter((x) =>
+      const matching = pages.filter((x) =>
         (x.title + ' ' + x.id).toLowerCase().includes(search.toLowerCase()),
       );
       const folders: string[] = listing.folders || [];
@@ -1085,7 +1171,10 @@ window.__ModuleLoader__.load({
                 key: 'doc:' + item.id,
                 type: 'button',
                 className:
-                  'dw-entry ' + (mode === item.kind && doc?.id === item.id ? 'active' : ''),
+                  'dw-entry ' +
+                  (mode === item.kind && (item.kind === 'image' ? image?.id : doc?.id) === item.id
+                    ? 'active'
+                    : ''),
                 style: { paddingLeft: 24 + depth * 14 },
                 title: item.id,
                 'aria-label': item.id,
@@ -1095,13 +1184,16 @@ window.__ModuleLoader__.load({
                   event.dataTransfer.setData('application/x-dogo-workspace-note', item.id);
                   event.dataTransfer.effectAllowed = 'copy';
                 },
-                onClick: () => report(openDocument(item.id)),
+                onClick: () =>
+                  report(item.kind === 'image' ? openImage(item) : openDocument(item.id)),
               },
-              h(Icon, {
-                name: item.kind === 'note' ? 'note' : 'grid',
-                size: 15,
-                className: 'dw-icon',
-              }),
+              item.kind === 'image'
+                ? h(ImageIcon)
+                : h(Icon, {
+                    name: item.kind === 'note' ? 'note' : 'grid',
+                    size: 15,
+                    className: 'dw-icon',
+                  }),
               h('span', null, item.kind === 'note' ? filename.replace(/\.md$/i, '') : filename),
             ),
           );
@@ -1124,13 +1216,14 @@ window.__ModuleLoader__.load({
           iconBtn('新建文件夹', 'folder-plus', () => report(create('folder'))),
           iconBtn('新建笔记', 'note-plus', () => report(create('note'))),
           iconBtn('新建画布', 'grid-plus', () => report(create('canvas'))),
+          iconBtn('刷新目录', 'refresh', () => report(refresh())),
         ),
         h(
           'div',
           { className: 'dw-tree-list' },
           h('input', {
             className: 'dw-search',
-            placeholder: '搜索笔记或路径',
+            placeholder: '搜索文件或路径',
             value: search,
             onChange: (e: any) => setSearch(e.target.value),
             'aria-label': '搜索知识库',
@@ -1264,6 +1357,8 @@ window.__ModuleLoader__.load({
               : [h('div', { className: 'dw-empty', key: 'empty' }, '这里暂时没有事项。')]),
           ),
         );
+      } else if (mode === 'image' && image) {
+        content = h(ImageViewer, { key: image.id + ':' + imageVersion, image, control });
       } else if (!doc) {
         content = h(
           'div',
@@ -1331,50 +1426,62 @@ window.__ModuleLoader__.load({
       }
 
       const toolbar =
-        doc && mode !== 'tasks'
+        mode === 'image' && image
           ? h(
               'div',
               { className: 'dw-toolbar' },
-              h('span', null, doc.kind === 'note' ? '笔记' : '画布'),
+              h('span', null, '图片'),
               h('span', null, ' / '),
-              h('span', null, doc.title),
+              h('span', null, image.title),
               h('span', { className: 'dw-spacer' }),
-              h(
-                'span',
-                {
-                  className: 'dw-save-status' + (doc.dirty ? ' saving' : ''),
-                  role: 'status',
-                  'aria-label': doc.dirty ? '保存中…' : '已保存',
-                  title: doc.dirty ? '保存中…' : '已保存',
-                },
-                h(Icon, { name: doc.dirty ? 'refresh' : 'check', size: 16 }),
+              iconBtn('重新加载图片', 'refresh', () =>
+                setImageVersion((version: number) => version + 1),
               ),
-              mode === 'note' &&
-                history.length > 0 &&
-                iconBtn('返回笔记', 'back', () => report(goBack())),
-              mode === 'note' &&
-                iconBtn(reading ? '编辑' : '阅读', reading ? 'edit' : 'eye', toggleReading, {
-                  title: '切换阅读视图 (⌘/Ctrl+E)',
-                }),
-              mode === 'note' &&
-                !reading &&
-                iconBtn(sourceMode ? '实时预览' : '源码', sourceMode ? 'preview' : 'code', () =>
-                  setSourceMode(!sourceMode),
-                ),
-              iconBtn('引用到 AI', 'quote', () => {
-                try {
-                  quoteCurrent();
-                } catch (e) {
-                  showError(e);
-                }
-              }),
-              iconBtn('重新加载', 'refresh', () => report(reloadCurrent())),
-              iconBtn('删除', 'trash', () => report(removeCurrent()), {
-                className: 'danger',
-                title: doc.kind === 'note' ? '删除当前笔记' : '删除当前画布',
-              }),
             )
-          : null;
+          : doc && mode !== 'tasks'
+            ? h(
+                'div',
+                { className: 'dw-toolbar' },
+                h('span', null, doc.kind === 'note' ? '笔记' : '画布'),
+                h('span', null, ' / '),
+                h('span', null, doc.title),
+                h('span', { className: 'dw-spacer' }),
+                h(
+                  'span',
+                  {
+                    className: 'dw-save-status' + (doc.dirty ? ' saving' : ''),
+                    role: 'status',
+                    'aria-label': doc.dirty ? '保存中…' : '已保存',
+                    title: doc.dirty ? '保存中…' : '已保存',
+                  },
+                  h(Icon, { name: doc.dirty ? 'refresh' : 'check', size: 16 }),
+                ),
+                mode === 'note' &&
+                  history.length > 0 &&
+                  iconBtn('返回笔记', 'back', () => report(goBack())),
+                mode === 'note' &&
+                  iconBtn(reading ? '编辑' : '阅读', reading ? 'edit' : 'eye', toggleReading, {
+                    title: '切换阅读视图 (⌘/Ctrl+E)',
+                  }),
+                mode === 'note' &&
+                  !reading &&
+                  iconBtn(sourceMode ? '实时预览' : '源码', sourceMode ? 'preview' : 'code', () =>
+                    setSourceMode(!sourceMode),
+                  ),
+                iconBtn('引用到 AI', 'quote', () => {
+                  try {
+                    quoteCurrent();
+                  } catch (e) {
+                    showError(e);
+                  }
+                }),
+                iconBtn('重新加载', 'refresh', () => report(reloadCurrent())),
+                iconBtn('删除', 'trash', () => report(removeCurrent()), {
+                  className: 'danger',
+                  title: doc.kind === 'note' ? '删除当前笔记' : '删除当前画布',
+                }),
+              )
+            : null;
       const ai = h(
         'aside',
         { className: 'dw-ai', id: 'dogo-workspace-ai' },
@@ -1417,7 +1524,7 @@ window.__ModuleLoader__.load({
                     selected: selectedPage,
                     setSelected: setSelectedPage,
                     currentLabel,
-                    documents,
+                    documents: pages,
                   },
                 },
                 h(SessionProvider, { session: reference }, renderSlot('dogo.workspace.chat', {})),
@@ -1525,7 +1632,15 @@ window.__ModuleLoader__.load({
             'aria-expanded': showTree,
           }),
           h('span', { className: 'dw-dim' }, '知识工作区 /'),
-          h('strong', null, mode === 'tasks' ? '待办' : doc?.title || '我的知识库'),
+          h(
+            'strong',
+            null,
+            mode === 'tasks'
+              ? '待办'
+              : mode === 'image'
+                ? image?.title
+                : doc?.title || '我的知识库',
+          ),
           h('span', { className: 'dw-spacer' }),
           iconBtn(showAi ? '收起 AI' : '展开 AI', 'chat', () => setShowAi(!showAi), {
             className: showAi ? 'active' : '',
