@@ -10,6 +10,7 @@
     <item name="send_message" type="id" />
     <item name="retry_message" type="id" />
     <item name="project_filter" type="id" />
+    <item name="new_session" type="id" />
     <item name="model_button" type="id" />
     <item name="model_spinner" type="id" />
     <item name="effort_spinner" type="id" />

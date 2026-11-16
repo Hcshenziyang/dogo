@@ -45,13 +45,15 @@ public final class MainActivity extends Activity {
     private String autoRetriedId = "";
     private String projectFilterKey = "@all";
     private JSONArray projectOptions = new JSONArray();
+    private JSONArray sessionDevices = new JSONArray();
+    private boolean freshSessionDevices;
     private JSONArray currentEntries = new JSONArray();
     private boolean showingCachedEntries;
     private LinearLayout sessionRows, chatMessages;
     private TextView chatStatus, pendingStatus;
     private EditText chatInput;
     private Button sendButton, retryButton, stopRetryButton;
-    private Button projectButton;
+    private Button projectButton, createButton;
     private Button modelButton;
     private final Runnable poll = () -> { if (foreground && screen.equals("chat")) refreshChat(); };
     private android.window.OnBackInvokedCallback backCallback;
@@ -302,7 +304,7 @@ public final class MainActivity extends Activity {
         if (store.session() == null) { showLogin(); return; }
         screen = "sessions";
         main.removeCallbacks(poll);
-        page("最近会话", "继续电脑上已有的对话。");
+        page("最近会话", "继续或新建电脑上的对话。");
         markdown = MarkdownRenderer.create(this);
         LinearLayout actions = ui.row();
         Button refresh = ui.button("刷新", false, false);
@@ -317,8 +319,19 @@ public final class MainActivity extends Activity {
         projectButton = ui.button("全部项目 ▾", false, false);
         projectButton.setId(R.id.project_filter);
         projectButton.setGravity(android.view.Gravity.START | android.view.Gravity.CENTER_VERTICAL);
-        root.addView(projectButton, ui.spaced(12));
+        createButton = ui.button("新建会话", true, false);
+        createButton.setId(R.id.new_session);
+        LinearLayout projectActions = ui.row();
+        projectActions.addView(projectButton, new LinearLayout.LayoutParams(0, -2, 1));
+        LinearLayout.LayoutParams createLayout = new LinearLayout.LayoutParams(-2, -2);
+        createLayout.leftMargin = dp(8);
+        projectActions.addView(createButton, createLayout);
+        root.addView(projectActions, ui.spaced(12));
         projectButton.setOnClickListener(v -> chooseProject());
+        createButton.setOnClickListener(v -> chooseCreateProject());
+        freshSessionDevices = false;
+        sessionDevices = new JSONArray();
+        createButton.setEnabled(false);
         sessionRows = ui.column();
         root.addView(sessionRows);
         JSONObject cached = remote.cachedList(scope());
@@ -361,12 +374,81 @@ public final class MainActivity extends Activity {
                     dialog.dismiss();
                 }).setNegativeButton("取消", null).show();
     }
+    private void chooseCreateProject() {
+        if (!freshSessionDevices) { say("请先刷新并连接电脑，再创建会话。"); return; }
+        ArrayList<JSONObject> options = new ArrayList<>();
+        ArrayList<String> labels = new ArrayList<>();
+        for (int i = 0; i < sessionDevices.length(); i++) {
+            JSONObject device = sessionDevices.optJSONObject(i);
+            if (device == null || !device.optBoolean("active") || !device.optBoolean("online")
+                    || !"desktop".equals(device.optString("kind"))) continue;
+            String id = device.optString("id"), name = device.optString("name", "电脑");
+            if (id.isEmpty()) continue;
+            for (int j = 0; j < projectOptions.length(); j++) {
+                JSONObject project = projectOptions.optJSONObject(j);
+                if (project == null || !project.optBoolean("online") || !id.equals(project.optString("device"))) continue;
+                String workspace = project.optString("workspaceId");
+                if (workspace.isEmpty()) continue;
+                String title = project.optString("title", "未命名项目");
+                options.add(Json.of("device", id, "deviceName", name, "workspaceId", workspace));
+                labels.add(title + " · " + name);
+            }
+            options.add(Json.of("device", id, "deviceName", name, "workspaceId", ""));
+            labels.add("未分组 · " + name);
+        }
+        if (options.isEmpty()) { say("没有在线电脑，请先在电脑端开启本机访问。"); return; }
+        int selected = -1;
+        for (int i = 0; i < options.size(); i++) {
+            if (projectFilterKey.equals(projectKey(options.get(i)))) { selected = i; break; }
+        }
+        final int[] choice = {selected};
+        AlertDialog dialog = new AlertDialog.Builder(this).setTitle("新建会话 · 选择电脑和项目")
+                .setSingleChoiceItems(labels.toArray(new String[0]), selected, (d, which) -> {
+                    choice[0] = which;
+                    updateCreateDialog((AlertDialog) d, options, which);
+                }).setNegativeButton("取消", null).setPositiveButton("创建会话", null).create();
+        dialog.setOnShowListener(v -> {
+            updateCreateDialog(dialog, options, choice[0]);
+            dialog.getButton(AlertDialog.BUTTON_POSITIVE).setOnClickListener(button -> {
+                if (choice[0] < 0) return;
+                JSONObject option = options.get(choice[0]);
+                dialog.dismiss();
+                createSession(option);
+            });
+        });
+        dialog.show();
+    }
+    private void updateCreateDialog(AlertDialog dialog, ArrayList<JSONObject> options, int selected) {
+        Button confirm = dialog.getButton(AlertDialog.BUTTON_POSITIVE);
+        if (confirm == null) return;
+        confirm.setEnabled(selected >= 0);
+        boolean pending = false;
+        if (selected >= 0) {
+            JSONObject option = options.get(selected);
+            pending = remote.pendingCreate(scope(), option.optString("device"), option.optString("workspaceId")) != null;
+        }
+        confirm.setText(pending ? "重试创建" : "创建会话");
+        dialog.setTitle(pending ? "上次创建待确认，重试使用原编号" : "新建会话 · 选择电脑和项目");
+    }
+    private void createSession(JSONObject option) {
+        String account = scope(), device = option.optString("device"), workspace = option.optString("workspaceId");
+        run(() -> remote.create(account, device, workspace), result -> {
+            projectFilterKey = workspace.isEmpty() ? "@ungrouped" : projectKey(option);
+            openChat(device, result.optString("sessionId"), option.optString("deviceName", "电脑"), "新会话");
+        }, error -> {
+            if (remote.pendingCreate(account, device, workspace) != null)
+                say("创建结果尚未确认；再次选择相同电脑和项目，可用原会话编号重试。");
+            else if (error instanceof IllegalStateException || error instanceof IllegalArgumentException)
+                say(error.getMessage());
+            else failure(error);
+        });
+    }
     private void renderSessions(JSONArray entries, boolean cached) {
         currentEntries = entries == null ? new JSONArray() : entries;
         showingCachedEntries = cached;
         sessionRows.removeAllViews();
         if (currentEntries.length() == 0) {
-            TextView empty = ui.text(cached ? "正在读取会话；已打开过的会话会保留在这里。" : "暂无会话。请先在电脑上打开 DogO 设备插件并创建会话。", 15, ui.muted, false);
+            TextView empty = ui.text(cached ? "正在读取会话；已打开过的会话会保留在这里。" : "暂无会话，可选择在线电脑和项目新建。", 15, ui.muted, false);
             sessionRows.addView(empty, ui.spaced(12));
             return;
         }
@@ -415,11 +497,17 @@ public final class MainActivity extends Activity {
         String account = scope();
         say("正在更新会话…");
         background(() -> remote.list(account), result -> {
+            sessionDevices = result.optJSONArray("devices");
+            if (sessionDevices == null) sessionDevices = new JSONArray();
+            freshSessionDevices = true;
+            createButton.setEnabled(true);
             setProjects(result.optJSONArray("projects"));
             renderSessions(result.optJSONArray("items"), false);
             say(result.optBoolean("incomplete") ? "部分会话暂时无法读取，可稍后刷新。" : "");
             loadPreview(result.optJSONArray("items"), 0, account);
         }, error -> {
+            freshSessionDevices = false;
+            createButton.setEnabled(false);
             JSONObject cached = remote.cachedList(account);
             setProjects(cached.optJSONArray("projects"));
             renderSessions(cached.optJSONArray("items"), true);
@@ -535,6 +623,7 @@ public final class MainActivity extends Activity {
         if (foreground) refreshChat();
     }
     private void renderChat(JSONArray messages) {
+        messages = RemoteSessions.visibleMessages(messages);
         String next = messages == null ? "" : messages.toString();
         if (next.equals(renderedMessages)) return;
         boolean atBottom = renderedMessages.isEmpty()

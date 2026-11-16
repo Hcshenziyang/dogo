@@ -104,6 +104,54 @@ final class RemoteSessions {
         if (value == null) throw new IllegalStateException("电脑返回的数据无效");
         return value;
     }
+    private String createKey(String scope, String device, String workspace) {
+        return "remote-create:" + SecureStore.scope(scope, device + "\n" + workspace);
+    }
+    synchronized JSONObject pendingCreate(String scope, String device, String workspace) {
+        return storage.get(createKey(scope, device, workspace));
+    }
+    synchronized JSONObject prepareCreate(String scope, String device, String workspace) throws Exception {
+        String key = createKey(scope, device, workspace);
+        JSONObject pending = storage.get(key);
+        if (pending == null) {
+            pending = Json.of("sessionId", "dogo-" + UUID.randomUUID());
+            if (!workspace.isEmpty()) Json.put(pending, "workspaceId", workspace);
+            storage.put(key, pending);
+        }
+        return pending;
+    }
+    JSONObject create(String scope, String device, String workspace) throws Exception {
+        if (device.isEmpty() || device.length() > 128 || workspace.length() > 128)
+            throw new IllegalArgumentException("电脑或项目无效，请刷新后重试。");
+        JSONArray devices = client.request("GET", "/api/devices", null).optJSONArray("items");
+        boolean online = false;
+        if (devices != null) for (int i = 0; i < devices.length(); i++) {
+            JSONObject entry = devices.optJSONObject(i);
+            if (entry != null && device.equals(entry.optString("id")) && "desktop".equals(entry.optString("kind"))
+                    && entry.optBoolean("active") && entry.optBoolean("online")) online = true;
+        }
+        if (!online) throw new IllegalStateException("电脑当前不在线，请连接后重试。");
+        if (!workspace.isEmpty()) {
+            JSONArray projects = remote(device, "workspaces", new JSONObject()).optJSONArray("items");
+            if (projects == null) throw new IllegalStateException("无法确认电脑上的项目，请刷新后重试。");
+            boolean found = false;
+            for (int i = 0; i < projects.length(); i++) {
+                JSONObject project = projects.optJSONObject(i);
+                if (project != null && workspace.equals(project.optString("workspaceId"))) found = true;
+            }
+            if (!found) throw new IllegalStateException("电脑上已找不到该项目，请刷新后重试。");
+        }
+        JSONObject pending = prepareCreate(scope, device, workspace);
+        JSONObject result = remote(device, "create", pending);
+        if (!pending.optString("sessionId").equals(result.optString("sessionId")))
+            throw new IllegalStateException("未能确认新会话，请使用相同项目重试。");
+        synchronized (this) {
+            JSONObject current = pendingCreate(scope, device, workspace);
+            if (current != null && pending.optString("sessionId").equals(current.optString("sessionId")))
+                storage.put(createKey(scope, device, workspace), null);
+        }
+        return result;
+    }
     synchronized JSONObject cachedList(String scope) {
         JSONObject cached = storage.get("remote-list:" + scope);
         if (cached == null || !cached.optBoolean("archiveChecked"))
@@ -162,7 +210,12 @@ final class RemoteSessions {
             if (!projectKnown) {
                 if (oldProjects != null) for (int n = 0; n < oldProjects.length(); n++) {
                     JSONObject project = oldProjects.optJSONObject(n);
-                    if (project != null && id.equals(project.optString("device"))) projects.put(Json.copy(project));
+                    if (project != null && id.equals(project.optString("device"))) {
+                        JSONObject copy = Json.copy(project);
+                        Json.put(copy, "online", false);
+                        Json.put(copy, "deviceName", name);
+                        projects.put(copy);
+                    }
                 }
                 if (old != null) for (int n = 0; n < old.length(); n++) {
                     JSONObject entry = old.optJSONObject(n);
@@ -313,8 +366,7 @@ final class RemoteSessions {
             } else if (type.equals("assistant/message")) {
                 JSONObject message = data.optJSONObject("message");
                 if (message != null) { role = "assistant"; text = blocks(message.optJSONArray("content"), true); }
-            } else if (type.equals("tool/call")) { role = "status"; text = "正在使用工具：" + data.optString("name", "工具"); }
-            else if (type.equals("turn/end")) {
+            } else if (type.equals("turn/end")) {
                 JSONObject reason = data.optJSONObject("reason");
                 if (reason != null && ("failed".equals(reason.optString("kind")) || "error".equals(reason.optString("kind")))) {
                     role = "status"; text = "本轮执行出错，请在电脑查看详情。";
@@ -327,6 +379,17 @@ final class RemoteSessions {
         }
         return result;
     }
+    static JSONArray visibleMessages(JSONArray messages) {
+        JSONArray result = new JSONArray();
+        if (messages == null) return result;
+        for (int i = 0; i < messages.length(); i++) {
+            JSONObject item = messages.optJSONObject(i);
+            if (item == null) continue;
+            if ("status".equals(item.optString("role")) && item.optString("text").startsWith("正在使用工具：")) continue;
+            result.put(item);
+        }
+        return result;
+    }
     private static String blocks(JSONArray blocks, boolean assistant) {
         if (blocks == null) return "";
         StringBuilder out = new StringBuilder();
@@ -334,8 +397,9 @@ final class RemoteSessions {
             JSONObject block = blocks.optJSONObject(i);
             if (block == null) continue;
             String type = block.optString("type");
-            String text = type.equals("text") ? block.optString("text") :
-                    (!assistant && !type.equals("reasoning") && !type.equals("tool-call") ? "[" + type + "]" : "");
+            boolean internal = type.equals("reasoning") || type.equals("thinking") || type.equals("tool-call")
+                    || type.equals("tool-result") || type.equals("tool_call") || type.equals("tool_result");
+            String text = type.equals("text") ? block.optString("text") : (!assistant && !internal ? "[" + type + "]" : "");
             if (!text.isEmpty()) { if (out.length() > 0) out.append('\n'); out.append(text); }
         }
         return out.toString();

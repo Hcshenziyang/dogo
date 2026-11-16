@@ -12,7 +12,9 @@ public class RemoteSessionsTest {
     static class Memory implements RemoteSessions.Storage {
         final Map<String, JSONObject> values = new HashMap<>();
         public JSONObject get(String key) { return values.containsKey(key) ? Json.copy(values.get(key)) : null; }
-        public void put(String key, JSONObject value) { values.put(key, Json.copy(value)); }
+        public void put(String key, JSONObject value) {
+            if (value == null) values.remove(key); else values.put(key, Json.copy(value));
+        }
     }
     @Test public void uncertainSendKeepsOriginalIdentityAndAllowsAnIndependentDraft() throws Exception {
         Memory memory = new Memory();
@@ -118,6 +120,7 @@ public class RemoteSessionsTest {
         JSONObject partial = remote.list("a");
         assertTrue(partial.optBoolean("incomplete"));
         assertEquals("p1", partial.getJSONArray("items").getJSONObject(0).optString("workspaceId"));
+        assertFalse(partial.getJSONArray("projects").getJSONObject(0).optBoolean("online"));
         online[0] = false;
         JSONObject offline = remote.list("a");
         assertEquals(2, offline.getJSONArray("projects").length());
@@ -160,5 +163,85 @@ public class RemoteSessionsTest {
         JSONObject message = RemoteSessions.conversation(Json.of("records", new JSONArray().put(Json.of("event", event)))).getJSONObject(0);
         assertEquals("123", message.optString("id"));
         assertEquals(text, message.optString("text"));
+    }
+    @Test public void conversationHidesToolActivityButKeepsMessagesAndFailures() throws Exception {
+        JSONArray events = new JSONArray()
+                .put(Json.of("event", Json.of("type", "user/message", "data", Json.of("source", Json.of("kind", "system"),
+                        "content", new JSONArray().put(Json.of("type", "text", "text", "internal context"))))))
+                .put(Json.of("event", Json.of("type", "user/message", "data", Json.of("source", Json.of("kind", "user"),
+                        "content", new JSONArray().put(Json.of("type", "text", "text", "hello"))
+                                .put(Json.of("type", "tool-result")).put(Json.of("type", "image"))))))
+                .put(Json.of("event", Json.of("type", "tool/call", "data", Json.of("name", "search"))))
+                .put(Json.of("event", Json.of("type", "tool/result", "data", Json.of("result", "noisy"))))
+                .put(Json.of("event", Json.of("type", "assistant/message", "data", Json.of("message", Json.of("content", new JSONArray()
+                        .put(Json.of("type", "reasoning", "text", "internal thoughts"))
+                        .put(Json.of("type", "tool-call", "name", "search"))
+                        .put(Json.of("type", "text", "text", "answer")))))))
+                .put(Json.of("event", Json.of("type", "turn/end", "data", Json.of("reason", Json.of("kind", "failed")))));
+        JSONArray messages = RemoteSessions.conversation(Json.of("records", events));
+        assertEquals(3, messages.length());
+        assertEquals("hello\n[image]", messages.getJSONObject(0).optString("text"));
+        assertEquals("answer", messages.getJSONObject(1).optString("text"));
+        assertEquals("本轮执行出错，请在电脑查看详情。", messages.getJSONObject(2).optString("text"));
+        JSONArray cached = new JSONArray().put(Json.of("role", "status", "text", "正在使用工具：search"))
+                .put(Json.of("role", "status", "text", "本轮执行出错，请在电脑查看详情。"));
+        assertEquals(1, RemoteSessions.visibleMessages(cached).length());
+        assertEquals("本轮执行出错，请在电脑查看详情。", RemoteSessions.visibleMessages(cached).getJSONObject(0).optString("text"));
+    }
+    @Test public void createRetriesSameSessionAndProjectAfterLostResponse() throws Exception {
+        Memory memory = new Memory();
+        JSONArray calls = new JSONArray();
+        RemoteSessions.Client client = (method, path, body) -> {
+            if (path.equals("/api/devices")) return Json.of("items", new JSONArray().put(
+                    Json.of("id", "mac", "kind", "desktop", "active", true, "online", true)));
+            if ("workspaces".equals(body.optString("method"))) return Json.of("value", Json.of("items", new JSONArray()
+                    .put(Json.of("workspaceId", "project-a")).put(Json.of("workspaceId", "project-b"))));
+            JSONObject args = Json.copy(body.getJSONObject("args"));
+            calls.put(args);
+            if (calls.length() == 1) throw new IOException("reply lost after computer created session");
+            return Json.of("value", Json.of("sessionId", args.optString("sessionId")));
+        };
+        RemoteSessions remote = new RemoteSessions(memory, client);
+        assertThrows(IOException.class, () -> remote.create("account", "mac", "project-a"));
+        JSONObject pending = remote.pendingCreate("account", "mac", "project-a");
+        assertNotNull(pending);
+        assertEquals("project-a", pending.optString("workspaceId"));
+        assertNull(remote.pendingCreate("account", "mac", "project-b"));
+        assertNull(remote.pendingCreate("other-account", "mac", "project-a"));
+        RemoteSessions reopened = new RemoteSessions(memory, client);
+        JSONObject result = reopened.create("account", "mac", "project-a");
+        assertEquals(pending.optString("sessionId"), result.optString("sessionId"));
+        assertEquals(calls.getJSONObject(0).toString(), calls.getJSONObject(1).toString());
+        assertNull(reopened.pendingCreate("account", "mac", "project-a"));
+        reopened.create("account", "mac", "");
+        assertFalse(calls.getJSONObject(2).has("workspaceId"));
+        assertNotEquals(pending.optString("sessionId"), calls.getJSONObject(2).optString("sessionId"));
+    }
+    @Test public void creationChecksLiveDeviceAndProjectBeforeSending() throws Exception {
+        Memory memory = new Memory();
+        final boolean[] online = {false};
+        final int[] creates = {0};
+        RemoteSessions remote = new RemoteSessions(memory, (method, path, body) -> {
+            if (path.equals("/api/devices")) return Json.of("items", new JSONArray().put(
+                    Json.of("id", "mac", "kind", "desktop", "active", true, "online", online[0])));
+            if ("workspaces".equals(body.optString("method"))) return Json.of("value", Json.of("items", new JSONArray()));
+            creates[0]++;
+            return Json.of("value", new JSONObject());
+        });
+        assertThrows(IllegalStateException.class, () -> remote.create("account", "mac", "project"));
+        online[0] = true;
+        assertThrows(IllegalStateException.class, () -> remote.create("account", "mac", "project"));
+        assertEquals(0, creates[0]);
+        assertNull(remote.pendingCreate("account", "mac", "project"));
+    }
+    @Test public void unexpectedCreateReplyDoesNotDiscardPendingIdentity() throws Exception {
+        Memory memory = new Memory();
+        RemoteSessions remote = new RemoteSessions(memory, (method, path, body) -> {
+            if (path.equals("/api/devices")) return Json.of("items", new JSONArray().put(
+                    Json.of("id", "mac", "kind", "desktop", "active", true, "online", true)));
+            return Json.of("value", Json.of("sessionId", "different-session"));
+        });
+        assertThrows(IllegalStateException.class, () -> remote.create("account", "mac", ""));
+        assertNotNull(remote.pendingCreate("account", "mac", ""));
     }
 }

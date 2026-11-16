@@ -56,6 +56,7 @@ public class RemoteFlowTest {
         assertNotNull("session in selected project", session);
         session.click();
         assertNotNull("original context", device.wait(Until.findObject(By.textContains("原有上下文")), 20000));
+        assertNull("tool calls are hidden", device.findObject(By.textContains("正在使用工具")));
         assertNotNull("idle status", device.wait(Until.findObject(By.textContains("电脑在线 · 可以继续")), 20000));
         UiObject2 expand = device.wait(Until.findObject(By.text("展开")), 10000);
         assertNotNull("long message is collapsed", expand);
@@ -106,5 +107,35 @@ public class RemoteFlowTest {
         assertEquals(1, result.optInt("executions"));
         assertEquals(2, result.optInt("attempts"));
         assertEquals(result.getJSONArray("ids").getString(0), result.getJSONArray("ids").getString(1));
+
+        device.pressBack();
+        filter = device.wait(Until.findObject(By.res(context.getPackageName(), "project_filter")), 10000);
+        assertNotNull(filter);
+        filter.click();
+        UiObject2 emptyProject = device.wait(Until.findObject(By.text("空项目 · Synthetic Mac")), 10000);
+        assertNotNull("empty project can be selected", emptyProject);
+        emptyProject.click();
+        UiObject2 newSession = device.wait(Until.findObject(By.res(context.getPackageName(), "new_session").enabled(true)), 15000);
+        assertNotNull("new session entry", newSession);
+        newSession.click();
+        UiObject2 create = device.wait(Until.findObject(By.text("创建会话").enabled(true)), 10000);
+        assertNotNull("selected project is preselected", create);
+        create.click();
+        assertNotNull("lost reply is reported", device.wait(Until.findObject(By.textContains("创建结果尚未确认")), 30000));
+        long reconnectDeadline = SystemClock.uptimeMillis() + 15000;
+        while (!stats().optBoolean("connected") && SystemClock.uptimeMillis() < reconnectDeadline) SystemClock.sleep(200);
+        assertTrue("synthetic desktop reconnects", stats().optBoolean("connected"));
+        newSession = device.wait(Until.findObject(By.res(context.getPackageName(), "new_session").enabled(true)), 10000);
+        assertNotNull(newSession);
+        newSession.click();
+        UiObject2 retryCreate = device.wait(Until.findObject(By.text("重试创建").enabled(true)), 10000);
+        assertNotNull("retry retains pending project", retryCreate);
+        retryCreate.click();
+        assertNotNull("new conversation opens", device.wait(Until.findObject(By.res(context.getPackageName(), "chat_input")), 20000));
+        JSONObject createResult = stats();
+        assertEquals(1, createResult.optInt("createExecutions"));
+        assertEquals(2, createResult.optInt("createAttempts"));
+        assertEquals(createResult.getJSONArray("createIds").getString(0), createResult.getJSONArray("createIds").getString(1));
+        assertEquals("empty-project", createResult.getJSONArray("created").getJSONObject(0).optString("workspaceId"));
     }
 }
