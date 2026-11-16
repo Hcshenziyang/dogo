@@ -59,4 +59,18 @@ describe('client data boundaries', () => {
       text: '执行出错：Provider unavailable',
     });
   });
+  it('keeps message IDs stable when a snapshot page shifts', () => {
+    const message = {
+      event: {
+        seq: 28,
+        type: 'assistant/message',
+        data: { message: { content: [{ type: 'text', text: '你好' }] } },
+      },
+    };
+    expect(conversation({ records: [message] }).items[0].id).toBe('28');
+    expect(
+      conversation({ records: [{ event: { seq: 27, type: 'turn/start', data: {} } }, message] })
+        .items[0].id,
+    ).toBe('28');
+  });
 });

@@ -5,9 +5,71 @@ import {
   writeLocal,
   type Dict,
 } from '../shared/presentation.js';
+import { renderDeviceMarkdown } from './markdown.js';
+import {
+  deviceStatus,
+  visibleSessions as filterSessions,
+  workspaceBaseline,
+} from './session-view.js';
 
 export function createDevicesView(React: any, ui: any) {
-  const { h, Icon, Button, Badge, Empty, Markdown, Field, Dialog } = ui;
+  const { h, Icon, Button, Badge, Empty, Field, Dialog } = ui;
+  function Message({ item, deviceName }: any) {
+    const [expanded, setExpanded] = React.useState(false);
+    const [overflow, setOverflow] = React.useState(false);
+    const body = React.useRef(null);
+    React.useLayoutEffect(() => {
+      const element = body.current as HTMLElement | null;
+      if (!element) return;
+      const measure = () => setOverflow(element.scrollHeight > 301);
+      measure();
+      const observer = typeof ResizeObserver === 'undefined' ? null : new ResizeObserver(measure);
+      observer?.observe(element);
+      window.addEventListener('resize', measure);
+      return () => {
+        observer?.disconnect();
+        window.removeEventListener('resize', measure);
+      };
+    }, [item.text]);
+    return h(
+      'article',
+      { className: 'dg-message dg-message-' + item.role },
+      h(
+        'div',
+        { className: 'dg-avatar' },
+        item.role === 'user' ? '我' : h(Icon, { name: 'chat', size: 15 }),
+      ),
+      h(
+        'div',
+        { className: 'dg-message-body' },
+        h(
+          'div',
+          { className: 'dg-message-label' },
+          item.role === 'user' ? '你' : 'DSH · ' + deviceName,
+        ),
+        h('div', {
+          ref: body,
+          className: 'dg-message-content' + (item.role === 'user' ? ' dg-message-text' : ''),
+          'data-collapsed': !expanded,
+          dangerouslySetInnerHTML: {
+            __html: '<div class="dg-markdown">' + renderDeviceMarkdown(item.text) + '</div>',
+          },
+        }),
+        overflow &&
+          h(
+            'button',
+            {
+              type: 'button',
+              className: 'dg-message-fold',
+              'aria-label': expanded ? '收起这条消息' : '展开这条消息',
+              'aria-expanded': expanded,
+              onClick: () => setExpanded(!expanded),
+            },
+            expanded ? '收起' : '展开',
+          ),
+      ),
+    );
+  }
   return function Devices({
     control,
     status,
@@ -35,6 +97,8 @@ export function createDevicesView(React: any, ui: any) {
     const [snapshotError, setSnapshotError] = React.useState('');
     const [workspaces, setWorkspaces] = React.useState([] as Dict[]),
       [catalog, setCatalog] = React.useState(null as Dict | null);
+    const [archived, setArchived] = React.useState([] as string[]),
+      [archiveKnown, setArchiveKnown] = React.useState(false);
     const [projectFilter, setProjectFilter] = React.useState(''),
       [optionsError, setOptionsError] = React.useState('');
     const [createOpen, setCreateOpen] = React.useState(false),
@@ -49,13 +113,31 @@ export function createDevicesView(React: any, ui: any) {
       bottom = React.useRef(true);
     const selectedRef = React.useRef(''),
       sessionRef = React.useRef(''),
-      modelRevision = React.useRef(0);
+      modelRevision = React.useRef(0),
+      workspaceRevision = React.useRef(0);
     selectedRef.current = target;
     sessionRef.current = session;
     const remote = async (method: string, args: Dict, device = target) =>
       (await control('remote', { device_id: device, method, args })).value;
+    const applyWorkspace = (value: unknown) => {
+      const baseline = workspaceBaseline(value);
+      if (!baseline) {
+        setArchiveKnown(false);
+        return false;
+      }
+      setWorkspaces(baseline.items);
+      setArchived((previous: string[]) =>
+        previous.length === baseline.archived.length &&
+        previous.every((id, index) => id === baseline.archived[index])
+          ? previous
+          : baseline.archived,
+      );
+      setArchiveKnown(true);
+      return true;
+    };
     const load = async (device = target, more = false) => {
       const sequence = ++generation.current;
+      const workspaceSequence = more ? 0 : ++workspaceRevision.current;
       setLoading(true);
       try {
         const [listing, projects, models] = await Promise.allSettled([
@@ -65,10 +147,14 @@ export function createDevicesView(React: any, ui: any) {
         if (!mounted.current || sequence !== generation.current || device !== selectedRef.current)
           return;
         if (!more) {
-          if (projects.status === 'fulfilled') setWorkspaces(projects.value.items);
+          const projectsOk =
+            workspaceSequence !== workspaceRevision.current ||
+            (projects.status === 'fulfilled' && applyWorkspace(projects.value));
+          if (!projectsOk && workspaceSequence === workspaceRevision.current)
+            setArchiveKnown(false);
           if (models.status === 'fulfilled') setCatalog(models.value);
           setOptionsError(
-            [projects, models].some((r) => r.status === 'rejected')
+            !projectsOk || models.status === 'rejected'
               ? '项目或模型读取失败，请刷新重试，并确认两端设备插件与 DogO 服务均已更新。'
               : '',
           );
@@ -91,6 +177,7 @@ export function createDevicesView(React: any, ui: any) {
     const chooseDevice = (id: string) => {
       if (id === target) return;
       generation.current++;
+      workspaceRevision.current++;
       selectedRef.current = id;
       setTarget(id);
       setSessions([]);
@@ -99,6 +186,8 @@ export function createDevicesView(React: any, ui: any) {
       setSnapshot(null);
       setSnapshotError('');
       setWorkspaces([]);
+      setArchived([]);
+      setArchiveKnown(false);
       setCatalog(null);
       setOptionsError('');
       setProjectFilter('');
@@ -133,10 +222,33 @@ export function createDevicesView(React: any, ui: any) {
       });
     }, [target, online]);
     React.useEffect(() => {
+      if (!target || !online) return;
+      let active = true,
+        polling = false;
+      const timer = setInterval(async () => {
+        if (polling || document.hidden) return;
+        polling = true;
+        const sequence = ++workspaceRevision.current;
+        try {
+          const result = await remote('workspaces', {}, target);
+          if (active && sequence === workspaceRevision.current) applyWorkspace(result);
+        } catch {
+          if (active && sequence === workspaceRevision.current) setArchiveKnown(false);
+        } finally {
+          polling = false;
+        }
+      }, 5000);
+      return () => {
+        active = false;
+        clearInterval(timer);
+      };
+    }, [target, online]);
+    React.useEffect(() => {
       mounted.current = true;
       return () => {
         mounted.current = false;
         generation.current++;
+        workspaceRevision.current++;
       };
     }, []);
     const restoreSession = (id: string, device = target) => {
@@ -158,7 +270,19 @@ export function createDevicesView(React: any, ui: any) {
       }
     };
     React.useEffect(() => {
-      if (!session || !target || !online) return;
+      if (!archiveKnown || !session || !archived.includes(session)) return;
+      setSession('');
+      setSnapshot(null);
+      setSnapshotError('');
+      setDetail(false);
+      try {
+        writeLocal(key('session', target), '');
+      } catch (e) {
+        setError((e as Error).message);
+      }
+    }, [archiveKnown, archived, session, target]);
+    React.useEffect(() => {
+      if (!session || !target || !online || !archiveKnown || archived.includes(session)) return;
       let active = true,
         polling = false;
       const poll = async () => {
@@ -183,7 +307,7 @@ export function createDevicesView(React: any, ui: any) {
         active = false;
         clearInterval(timer);
       };
-    }, [target, session, online]);
+    }, [target, session, online, archiveKnown, archived]);
     const history = conversation(snapshot);
     React.useEffect(() => {
       if (scroll.current && bottom.current) scroll.current.scrollTop = scroll.current.scrollHeight;
@@ -265,13 +389,12 @@ export function createDevicesView(React: any, ui: any) {
     const sessionTitle = sessions.find((s: Dict) => s.sessionId === session);
     const projectFor = (id: string) => workspaces.find((w: Dict) => w.sessionIds.includes(id));
     const sessionProject = projectFor(session);
-    const visibleSessions = sessions.filter((s: Dict) => {
-      const project = projectFor(s.sessionId);
-      return (
-        !projectFilter ||
-        (projectFilter === '@ungrouped' ? !project : project?.workspaceId === projectFilter)
-      );
-    });
+    const visibleSessions = filterSessions(
+      sessions,
+      archiveKnown ? archived : null,
+      projectFilter,
+      workspaces,
+    );
     const currentModel = snapshot?.projections?.values?.modelSelection?.next || catalog?.default;
     const modelKey = (m: Dict) => JSON.stringify([m.provider, m.model]);
     const modelGroups = catalog?.groups || [];
@@ -279,18 +402,7 @@ export function createDevicesView(React: any, ui: any) {
       .find((g: Dict) => g.id === currentModel?.provider)
       ?.models.find((m: Dict) => m.id === currentModel?.model);
     const reasoning = modelInfo?.reasoning;
-    const statusText = (d: Dict) =>
-      !d.active
-        ? '已禁用'
-        : isOnline(d)
-          ? '在线'
-          : d.id === status.deviceId && !status.consumer?.enabled
-            ? '仅作为访问方'
-            : d.id === status.deviceId
-              ? status.consumer?.error
-                ? '连接异常'
-                : '正在连接'
-              : '离线';
+    const statusText = (d: Dict) => deviceStatus(d, status);
     return h(
       'div',
       { className: 'dg-split dg-device-layout' },
@@ -336,7 +448,7 @@ export function createDevicesView(React: any, ui: any) {
                 h('div', { className: 'dg-device-name' }, d.name),
                 h(
                   Badge,
-                  { tone: d.online && d.active ? 'good' : 'muted' },
+                  { tone: d.kind === 'desktop' && isOnline(d) && d.active ? 'good' : 'muted' },
                   statusText(d),
                   d.id === status.deviceId && ' · 本机',
                 ),
@@ -382,9 +494,11 @@ export function createDevicesView(React: any, ui: any) {
                     h(
                       'p',
                       null,
-                      selected.id === status.deviceId
-                        ? '当前电脑 · 会话在本机执行与保存'
-                        : '会话在这台设备上执行与保存',
+                      selected.kind !== 'desktop'
+                        ? '手机可查看电脑上的会话'
+                        : selected.id === status.deviceId
+                          ? '当前电脑 · 会话在本机执行与保存'
+                          : '会话在这台设备上执行与保存',
                     ),
                   ),
                 ),
@@ -496,7 +610,7 @@ export function createDevicesView(React: any, ui: any) {
                             icon: 'plus',
                             variant: 'secondary',
                             className: 'dg-wide',
-                            disabled: busy || !online || loading,
+                            disabled: busy || !online || loading || !archiveKnown,
                             style: { marginTop: 12 },
                             onClick: beginCreate,
                           },
@@ -514,33 +628,40 @@ export function createDevicesView(React: any, ui: any) {
                         { className: 'dg-list' },
                         loading && !sessions.length
                           ? h('div', { className: 'dg-skeleton' })
-                          : !visibleSessions.length
+                          : !archiveKnown
                             ? h(
                                 Empty,
-                                { icon: 'chat', title: '这个项目还没有会话' },
-                                '从上方新建一段对话。',
+                                { icon: 'chat', title: '暂时无法确认会话状态' },
+                                '请连接电脑并刷新，确认归档状态后再显示会话。',
                               )
-                            : visibleSessions.map((s: Dict) =>
-                                h(
-                                  'button',
-                                  {
-                                    key: s.sessionId,
-                                    className: 'dg-session-row',
-                                    'aria-current': session === s.sessionId,
-                                    disabled: busy,
-                                    onClick: () => chooseSession(s.sessionId),
-                                  },
-                                  h('strong', null, title(s)),
-                                  h('small', null, projectFor(s.sessionId)?.title || '未分组'),
+                            : !visibleSessions.length
+                              ? h(
+                                  Empty,
+                                  { icon: 'chat', title: '这个项目还没有会话' },
+                                  '从上方新建一段对话。',
+                                )
+                              : visibleSessions.map((s: Dict) =>
                                   h(
-                                    'small',
-                                    null,
-                                    dateLabel(s.updatedAt || s.createdAt) ||
-                                      '保存在 ' + selected.name,
+                                    'button',
+                                    {
+                                      key: s.sessionId,
+                                      className: 'dg-session-row',
+                                      'aria-current': session === s.sessionId,
+                                      disabled: busy,
+                                      onClick: () => chooseSession(s.sessionId),
+                                    },
+                                    h('strong', null, title(s)),
+                                    h('small', null, projectFor(s.sessionId)?.title || '未分组'),
+                                    h(
+                                      'small',
+                                      null,
+                                      dateLabel(s.updatedAt || s.createdAt) ||
+                                        '保存在 ' + selected.name,
+                                    ),
                                   ),
                                 ),
-                              ),
                         cursor &&
+                          archiveKnown &&
                           h(
                             Button,
                             {
@@ -555,24 +676,28 @@ export function createDevicesView(React: any, ui: any) {
                     h(
                       'section',
                       { className: 'dg-chat', 'aria-label': '远程会话' },
-                      !session
+                      !archiveKnown || !session || archived.includes(session)
                         ? h(
                             Empty,
                             {
                               icon: 'chat',
-                              title: '接着上次的思路',
-                              action: h(
-                                Button,
-                                {
-                                  variant: 'primary',
-                                  icon: 'plus',
-                                  disabled: busy || !online || loading,
-                                  onClick: beginCreate,
-                                },
-                                creating ? '重试创建会话' : '开始新会话',
-                              ),
+                              title: archiveKnown ? '接着上次的思路' : '暂时无法确认会话状态',
+                              action:
+                                archiveKnown &&
+                                h(
+                                  Button,
+                                  {
+                                    variant: 'primary',
+                                    icon: 'plus',
+                                    disabled: busy || !online || loading || !archiveKnown,
+                                    onClick: beginCreate,
+                                  },
+                                  creating ? '重试创建会话' : '开始新会话',
+                                ),
                             },
-                            '选择左侧会话继续讨论。发送后关闭此页面，电脑也会继续处理。',
+                            archiveKnown
+                              ? '选择左侧会话继续讨论。发送后关闭此页面，电脑也会继续处理。'
+                              : '连接电脑后会自动读取归档状态。',
                           )
                         : h(
                             React.Fragment,
@@ -647,7 +772,10 @@ export function createDevicesView(React: any, ui: any) {
                               !snapshot
                                 ? h(
                                     Empty,
-                                    { icon: 'chat', title: online ? '正在读取会话' : '设备已离线' },
+                                    {
+                                      icon: 'chat',
+                                      title: online ? '正在读取会话' : '设备已离线',
+                                    },
                                     online
                                       ? '连接执行电脑，获取最近记录。'
                                       : '电脑重新上线后，这里会自动读取最新对话。',
@@ -662,7 +790,11 @@ export function createDevicesView(React: any, ui: any) {
                                       item.role === 'status'
                                         ? h(
                                             'div',
-                                            { key: item.id, className: 'dg-notice', role: 'alert' },
+                                            {
+                                              key: item.id,
+                                              className: 'dg-notice',
+                                              role: 'alert',
+                                            },
                                             h('span', null, item.text),
                                           )
                                         : item.role === 'tool'
@@ -672,38 +804,11 @@ export function createDevicesView(React: any, ui: any) {
                                               h('summary', null, '工具调用 · ' + item.name),
                                               h('pre', null, item.text),
                                             )
-                                          : h(
-                                              'article',
-                                              {
-                                                key: item.id,
-                                                className: 'dg-message dg-message-' + item.role,
-                                              },
-                                              h(
-                                                'div',
-                                                { className: 'dg-avatar' },
-                                                item.role === 'user'
-                                                  ? '我'
-                                                  : h(Icon, { name: 'chat', size: 15 }),
-                                              ),
-                                              h(
-                                                'div',
-                                                { className: 'dg-message-body' },
-                                                h(
-                                                  'div',
-                                                  { className: 'dg-message-label' },
-                                                  item.role === 'user'
-                                                    ? '你'
-                                                    : 'DSH · ' + selected.name,
-                                                ),
-                                                item.role === 'user'
-                                                  ? h(
-                                                      'div',
-                                                      { className: 'dg-message-text' },
-                                                      item.text,
-                                                    )
-                                                  : h(Markdown, { text: item.text }),
-                                              ),
-                                            ),
+                                          : h(Message, {
+                                              key: item.id,
+                                              item,
+                                              deviceName: selected.name,
+                                            }),
                                     ),
                             ),
                             h(

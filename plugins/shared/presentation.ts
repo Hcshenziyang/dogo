@@ -45,7 +45,7 @@ export function conversation(snapshot: Dict | null): {
     const event = record.event,
       data = event?.data;
     if (!event || !data) continue;
-    const id = String(record.seq ?? index);
+    const id = String(event.seq ?? record.seq ?? index);
     if (event.type === 'turn/start') {
       state = '正在执行';
       running = true;
