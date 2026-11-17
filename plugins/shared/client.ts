@@ -31,6 +31,8 @@ export function registerClient(title: string) {
           password: '',
         }));
         const [cwd, setCwd] = React.useState('');
+        const [deviceName, setDeviceName] = React.useState('');
+        const [renamePassword, setRenamePassword] = React.useState('');
         const mounted = React.useRef(true),
           flight = React.useRef(false),
           refreshSequence = React.useRef(0);
@@ -105,7 +107,15 @@ export function registerClient(title: string) {
         }, [notice]);
         const openSettings = () => {
           setCwd(status?.consumer?.cwd || '');
+          setDeviceName(devices.find((device: Dict) => device.id === status?.deviceId)?.name || '');
+          setRenamePassword('');
+          setError('');
+          setNotice('');
           setSettings(true);
+        };
+        const closeSettings = () => {
+          setRenamePassword('');
+          setSettings(false);
         };
         const configure = (enabled: boolean, directory: string, notice?: string) =>
           void run(async () => {
@@ -123,6 +133,9 @@ export function registerClient(title: string) {
           label = '确认',
         ) => setConfirmation({ heading, description, action, label });
         const connected = !!status?.consumer?.online;
+        const currentDeviceName = devices.find(
+          (device: Dict) => device.id === status?.deviceId,
+        )?.name;
         const accessState = !status?.consumer?.enabled
           ? '本机仅作为访问方'
           : connected
@@ -176,9 +189,15 @@ export function registerClient(title: string) {
           !confirmation &&
           h(
             Dialog,
-            { title: 'DogO 设置', close: () => setSettings(false) },
+            { title: 'DogO 设置', close: closeSettings },
             error &&
               h('p', { className: 'dg-notice', role: 'alert', style: { marginBottom: 20 } }, error),
+            notice &&
+              h(
+                'p',
+                { className: 'dg-notice dg-success', role: 'status', style: { marginBottom: 20 } },
+                notice,
+              ),
             h(
               'section',
               { className: 'dg-settings-section' },
@@ -210,13 +229,81 @@ export function registerClient(title: string) {
                       '本机将断开 DogO，已接收的会话仍由执行电脑继续处理。',
                       async () => {
                         await control('logout');
-                        setSettings(false);
+                        closeSettings();
                         await refresh();
                       },
                       '退出登录',
                     ),
                 },
                 '退出登录',
+              ),
+            ),
+            h(
+              'section',
+              { className: 'dg-settings-section' },
+              h('h3', null, '本机名称'),
+              h('p', null, '其他设备会看到此名称。修改时需要验证账户密码，连接会短暂重连。'),
+              h(
+                'form',
+                {
+                  onSubmit: (e: any) => {
+                    e.preventDefault();
+                    const name = deviceName.trim(),
+                      password = renamePassword;
+                    void run(async () => {
+                      try {
+                        ++refreshSequence.current;
+                        await control('rename-device', { name, password });
+                        setDeviceName(name);
+                        setLogin((old: Dict) => ({ ...old, name }));
+                        try {
+                          writeLocal('dogo.login.preferences', {
+                            server: status.server,
+                            username: status.username,
+                            name,
+                          });
+                          setNotice('本机名称已更新，其他设备刷新后可见。');
+                        } catch {
+                          setNotice('本机名称已更新，但本机登录偏好未能保存。');
+                        }
+                        await refresh();
+                      } finally {
+                        setRenamePassword('');
+                      }
+                    });
+                  },
+                },
+                h(Field, {
+                  label: '本机名称',
+                  value: deviceName,
+                  required: true,
+                  maxLength: 100,
+                  disabled: busy,
+                  onChange: (e: any) => setDeviceName(e.target.value),
+                }),
+                h(Field, {
+                  label: '账户密码',
+                  type: 'password',
+                  autoComplete: 'current-password',
+                  value: renamePassword,
+                  required: true,
+                  maxLength: 256,
+                  disabled: busy,
+                  onChange: (e: any) => setRenamePassword(e.target.value),
+                }),
+                h(
+                  Button,
+                  {
+                    type: 'submit',
+                    variant: 'primary',
+                    disabled:
+                      busy ||
+                      !deviceName.trim() ||
+                      !renamePassword ||
+                      deviceName.trim() === currentDeviceName,
+                  },
+                  busy ? '正在保存…' : '保存本机名称',
+                ),
               ),
             ),
             status.consumer &&

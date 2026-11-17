@@ -58,6 +58,22 @@ export class Runtime {
           this.loggingIn = false;
         }
       }
+      case 'rename-device': {
+        const p = z
+          .object({
+            name: z.string().trim().min(1).max(100),
+            password: z.string().min(1).max(256),
+          })
+          .strict()
+          .parse(payload);
+        if (this.loggingIn) throw Error('正在处理，请稍后再试。');
+        this.loggingIn = true;
+        try {
+          return await this.api.renameDevice(p.name, p.password);
+        } finally {
+          this.loggingIn = false;
+        }
+      }
       case 'devices':
         return this.api.request('/api/devices');
       case 'revoke':

@@ -49,6 +49,7 @@ export class Api {
   state?: LoginState;
   generation = 0;
   private refreshFlight?: Promise<void>;
+  private renameFlight?: Promise<void>;
   readonly changes = new Set<() => void>();
   constructor(
     readonly store: Store,
@@ -98,6 +99,41 @@ export class Api {
     this.changed();
     return this.view();
   }
+  async renameDevice(name: string, password: string) {
+    if (this.renameFlight) throw Error('正在修改设备名称，请稍后再试。');
+    const pending = (async () => {
+      await this.refreshFlight?.catch(() => {});
+      const state = this.state;
+      if (!state) throw new ApiError('login_required', '请先登录 DogO。', 401);
+      const epoch = this.generation;
+      try {
+        const tokens = await this.raw<Tokens>(state.server, '/api/auth/login', 'POST', {
+          username: state.username,
+          password,
+          device_id: state.tokens.device_id,
+          device_name: name,
+          device_kind: 'desktop',
+        });
+        if (epoch !== this.generation || tokens.device_id !== state.tokens.device_id)
+          throw Error('登录状态已变化。');
+        await this.save({ ...state, tokens, expiresAt: Date.now() + tokens.expires_in * 1000 });
+        this.changed();
+      } catch (e) {
+        if (e instanceof ApiError && e.status < 500 && e.status !== 429) {
+          if (e.code === 'invalid_credentials') throw Error('账户密码不正确，请重试。');
+          throw e;
+        }
+        throw Error('名称更新结果未确认，请刷新设备列表；如果无法连接，请重新登录。');
+      }
+    })();
+    this.renameFlight = pending;
+    try {
+      await pending;
+    } finally {
+      if (this.renameFlight === pending) this.renameFlight = undefined;
+    }
+    return this.view();
+  }
   private async save(state: LoginState) {
     await this.credentials.modifyRecord(key, async () => ({ kind: 'grant', payload: state }));
     this.state = state;
@@ -110,11 +146,13 @@ export class Api {
     this.changed();
   }
   async token(): Promise<string> {
+    if (this.renameFlight) await this.renameFlight.catch(() => {});
     if (!this.state) throw new ApiError('login_required', '请先登录 DogO。', 401);
     if (this.state.expiresAt < Date.now() + 30000) await this.refresh();
     return this.state!.tokens.access_token;
   }
   async refresh() {
+    if (this.renameFlight) await this.renameFlight.catch(() => {});
     if (this.refreshFlight) return this.refreshFlight;
     const state = this.state,
       epoch = this.generation;
@@ -159,7 +197,9 @@ export class Api {
     try {
       return await this.raw<T>(state.server, path, method, body, token);
     } catch (e) {
-      if (!(e instanceof ApiError) || e.status !== 401 || epoch !== this.generation) throw e;
+      if (!(e instanceof ApiError) || e.status !== 401) throw e;
+      if (this.renameFlight) await this.renameFlight.catch(() => {});
+      if (epoch !== this.generation) throw Error('登录状态已变化。');
       if (this.state?.tokens.access_token === token) await this.refresh();
       if (epoch !== this.generation) throw Error('登录状态已变化。');
       return this.raw<T>(state.server, path, method, body, await this.token());
