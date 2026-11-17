@@ -334,7 +334,16 @@ final class RemoteSessions {
         }
         JSONObject result = Json.of("online", true, "known", known, "running", running, "messages", messages);
         if (selection != null) Json.put(result, "selection", selection);
+        JSONObject approvalState = snapshot.optJSONObject("dogoApprovals");
+        Json.put(result, "approvalAvailable", approvalState != null && approvalState.optBoolean("available"));
+        Json.put(result, "approvals", approvalState == null || approvalState.optJSONArray("items") == null
+                ? new JSONArray() : approvalState.optJSONArray("items"));
         return result;
+    }
+    JSONObject respondApproval(String device, String session, String approval, String decision) throws Exception {
+        if (session.isEmpty() || approval.isEmpty() || !("allowed-once".equals(decision) || "rejected".equals(decision)))
+            throw new IllegalArgumentException("审批请求无效，请刷新后重试。");
+        return remote(device, "respondApproval", Json.of("sessionId", session, "approvalId", approval, "decision", decision));
     }
     String preview(String scope, String device, String session) throws Exception {
         JSONArray messages = conversation(remote(device, "snapshot", Json.of("sessionId", session)));

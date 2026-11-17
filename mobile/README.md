@@ -8,6 +8,8 @@
 
 在最近会话中点击“新建会话”，选择在线电脑及其项目；已筛选的项目会默认选中，也可选择未分组并使用电脑默认执行目录。创建前会重新确认电脑在线及项目存在。若创建结果未确认，重新选择相同电脑和项目时可使用原会话编号重试，避免重复创建。对话默认隐藏工具调用、工具结果和思考内容，保留用户和 AI 的文字消息及执行失败提示；旧缓存中的工具进度也会隐藏。
 
+电脑会话需要工具审批时，打开对应手机会话可查看审批原因及完整参数，并选择“允许一次”或“拒绝”。电脑抢先处理或请求失效后不能重复提交；审批参数不完整或提交结果无法确认时，请回电脑查看。此功能需要同时更新服务端、电脑设备插件和 Android；仅在会话前台刷新，不提供后台或锁屏通知。
+
 手机按电脑工作区提供的归档状态隐藏已归档会话；更新前未经归档校验的旧列表会暂时隐藏，重新连接电脑后刷新，草稿和消息缓存不删除。离线时显示上次已确认的列表；若某会话打开后在电脑上被归档，刷新会自动返回列表。
 
 电脑需保持 DSH 运行，在 DogO 设备插件中登录与手机相同的服务和账户，然后进入“设置本机访问”，填写本机已有目录并开启访问；插件显示在线后手机才能读取或续聊。若服务器尚无账户，可按 [Rust 服务说明](../server-rust/README.md) 在交互终端创建，密码不需要发给其他人。
@@ -42,3 +44,5 @@ cd mobile/android
 ```
 
 Android 远程会话仪器测试只允许模拟器。该测试需要另行启动仅供测试的 Rust 服务（监听 `127.0.0.1:18789`、使用独立空目录及测试邀请码 `synthetic-invite`），然后运行 `node mobile/android/test-support/remote-fixture.mjs`；它模拟项目、模型和会话，以及电脑接收后断线、重新连接和去重。未启动该夹具时此测试会跳过。具体验证结果和真实设备状态见 [STATUS.md](../STATUS.md)。
+
+真实 Harness 审批验收需另行准备临时 DSH profile、回环 Rust 服务和合成账号 `synthetic-user` / `synthetic-test-password`。为该 profile 加载 `plugins/tests/fixtures/approval-model.mjs`，将默认模型设为 `dogo-eval/fixture` 并在 `127.0.0.1:18185` 启动。将合成账号 JSON 写入临时目录的 `account.json`，设置 `EVAL_CACHE`、`EVAL_DSH_HOME` 和 `EVAL_DSH_LOG` 后运行 `node plugins/scripts/approval-native-smoke.mjs prepare`；通过 adb 在隔离模拟器上运行 `NativeApprovalFlowTest` 并传入 instrumentation 参数 `dogoNativeApproval=true`，最后执行同一脚本的 `verify`。未显式传入参数时原生 Harness 测试跳过。

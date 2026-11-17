@@ -16,6 +16,26 @@ public class RemoteSessionsTest {
             if (value == null) values.remove(key); else values.put(key, Json.copy(value));
         }
     }
+    @Test public void approvalIsLiveOnlyAndRepliesCarryTheExactDecision() throws Exception {
+        Memory memory = new Memory();
+        final JSONObject[] call = {null};
+        RemoteSessions remote = new RemoteSessions(memory, (method, path, body) -> {
+            if (path.equals("/api/devices")) return Json.of("items", new JSONArray().put(Json.of("id", "mac", "active", true, "online", true)));
+            if (body.optString("method").equals("workspaces")) return Json.of("value", Json.of("items", new JSONArray(), "archivedSessionIds", new JSONArray()));
+            if (body.optString("method").equals("list")) return Json.of("value", Json.of("items", new JSONArray().put(Json.of("sessionId", "s", "running", true))));
+            if (body.optString("method").equals("snapshot")) return Json.of("value", Json.of("records", new JSONArray(), "dogoApprovals", Json.of("available", true, "items", new JSONArray().put(Json.of("id", "approval-1", "reason", "合成原因", "arguments", "synthetic command", "detailAvailable", true)))));
+            call[0] = Json.copy(body);
+            return Json.of("value", Json.of("status", "resolved", "outcome", "rejected"));
+        });
+        JSONObject detail = remote.detail("a", "mac", "s");
+        assertTrue(detail.optBoolean("approvalAvailable"));
+        assertEquals("synthetic command", detail.getJSONArray("approvals").getJSONObject(0).optString("arguments"));
+        assertFalse(remote.cached("a", "mac", "s").toString().contains("synthetic command"));
+        assertEquals("rejected", remote.respondApproval("mac", "s", "approval-1", "rejected").optString("outcome"));
+        assertEquals("respondApproval", call[0].optString("method"));
+        assertEquals("rejected", call[0].getJSONObject("args").optString("decision"));
+        assertThrows(IllegalArgumentException.class, () -> remote.respondApproval("mac", "s", "approval-1", "always"));
+    }
     @Test public void uncertainSendKeepsOriginalIdentityAndAllowsAnIndependentDraft() throws Exception {
         Memory memory = new Memory();
         JSONArray sent = new JSONArray();

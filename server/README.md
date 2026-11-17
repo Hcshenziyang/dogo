@@ -48,7 +48,7 @@ HTTP 提供健康检查、登录/刷新/退出/当前账户、设备列表/禁�
 
 ## 在线会话转发
 
-`POST /api/remote/call` 使用 Bearer 认证。请求 `{device_id, method, args}`；method 仅允许 `list/snapshot/create/prompt/cancel/workspaces/models/selectModel`。`workspaces`/`models` 读取远端 DSH 项目和可用模型；`create` 可带 `workspaceId`，`selectModel` 指定会话、提供商、模型及可选思考强度，由执行设备验证。服务端检查目标是同账户、启用且在线的桌面设备；离线立即失败。设备收到 `{type:"remote.call", id, call:{method,args}}`，通过 `{type:"remote.result", id, ok, value?, error?}` 回传。成功 HTTP 返回 `{value}`；请求关联 ID 由服务器生成，不能替代 prompt 的稳定 `args.requestId`。
+`POST /api/remote/call` 使用 Bearer 认证。请求 `{device_id, method, args}`；method 仅允许 `list/snapshot/create/prompt/cancel/workspaces/models/selectModel/respondApproval`。`workspaces`/`models` 读取远端 DSH 项目和可用模型；`create` 可带 `workspaceId`，`selectModel` 指定会话、提供商、模型及可选思考强度；`respondApproval` 提交当前原生审批的一次允许或拒绝，由执行设备验证。服务端检查目标是同账户、启用且在线的桌面设备；离线立即失败。设备收到 `{type:"remote.call", id, call:{method,args}}`，通过 `{type:"remote.result", id, ok, value?, error?}` 回传。成功 HTTP 返回 `{value}`；请求关联 ID 由服务器生成，不能替代 prompt 的稳定 `args.requestId`。
 
 设备插件再次校验参数，并调用本机 DSH。创建传稳定 `sessionId`，发消息传 `sessionId/requestId/text`，查询快照和停止传 `sessionId`，列表可带 `cursor`。访问方必须保留结果未知时的完整请求；断开等待、504 或设备断线均不能解释为“没有执行”。停止必须显式调用，关闭查看页面不会停止任务。
 

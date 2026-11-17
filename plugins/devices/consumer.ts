@@ -63,7 +63,10 @@ export class Consumer {
     clearTimeout(this.retry);
     clearTimeout(this.rotation);
     this.socket?.close();
-    if (!this.stopped && this.config.enabled && this.api.state) void this.connect(this.generation);
+    if (!this.stopped && this.config.enabled && this.api.state) {
+      this.native.startApprovals?.();
+      void this.connect(this.generation);
+    } else void this.native.stopApprovals?.();
   }
   private async connect(generation: number) {
     try {
@@ -171,9 +174,14 @@ export class Consumer {
         this.retry = setTimeout(() => void this.connect(generation), 5000);
     }
   }
-  stop() {
+  async stop() {
     this.stopped = true;
     this.api.changes.delete(this.wake);
-    this.restart();
+    this.generation++;
+    this.online = false;
+    clearTimeout(this.retry);
+    clearTimeout(this.rotation);
+    this.socket?.close();
+    await this.native.stopApprovals?.();
   }
 }

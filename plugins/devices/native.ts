@@ -2,6 +2,7 @@ import * as Connection from '@deepseek-ai/dsh-client-connection';
 import { z } from 'zod';
 import { localCarrier } from '../vendor/dsh-remote/carrier.js';
 import type { LocalTypertGateway } from '../vendor/dsh-remote/contract.js';
+import { Approvals } from './approvals.js';
 
 const id = z.string().min(1).max(128);
 export const remoteCall = z.discriminatedUnion('method', [
@@ -32,9 +33,16 @@ export const remoteCall = z.discriminatedUnion('method', [
     args: z.object({ sessionId: id, requestId: id, text: z.string().min(1).max(256000) }).strict(),
   }),
   z.object({ method: z.literal('cancel'), args: z.object({ sessionId: id }).strict() }),
+  z.object({
+    method: z.literal('respondApproval'),
+    args: z.object({ sessionId: id, approvalId: id, decision: z.enum(['allowed-once', 'rejected']) }).strict(),
+  }),
 ]);
 export class NativeSessions {
-  constructor(readonly gateway: LocalTypertGateway) {}
+  private readonly approvals: Approvals;
+  constructor(readonly gateway: LocalTypertGateway) { this.approvals = new Approvals(gateway); }
+  startApprovals() { this.approvals.start(); }
+  async stopApprovals() { await this.approvals.stop(); }
   async invoke(method: string, request?: unknown): Promise<any> {
     return this.gateway.invoke({
       namespace: 'session',
@@ -54,9 +62,31 @@ export class NativeSessions {
     });
   }
   async snapshot(sessionId: string) {
+    const snapshot = await this.rawSnapshot(sessionId);
+    return { ...snapshot, dogoApprovals: this.approvals.snapshot(sessionId, snapshot.records || []) };
+  }
+  private async rawSnapshot(sessionId: string) {
     return this.firstFrame('session/follow', {
       args: { request: { address: { kind: 'session', sessionId }, maxMessages: 30 } },
     });
+  }
+  async respondApproval(sessionId: string, approvalId: string, decision: 'allowed-once' | 'rejected') {
+    const before = await this.rawSnapshot(sessionId);
+    const records = Array.isArray(before.records) ? before.records : [];
+    const pending = this.approvals.snapshot(sessionId, records).items.find((p) => p.id === approvalId);
+    if (!pending?.detailAvailable) throw Error('审批详情不可用或已变化，请回到电脑处理。');
+    const askedId = this.approvals.auditId(sessionId, approvalId, records);
+    if (!askedId) throw Error('审批已经处理或无法确认，请刷新会话。');
+    await this.approvals.respond(sessionId, approvalId, decision);
+    // The Gateway can acknowledge an already-settled event. Only the session audit proves the outcome.
+    await new Promise((resolve) => setTimeout(resolve, 200));
+    try {
+      const after = await this.rawSnapshot(sessionId);
+      const decided = (after.records || []).find((r: any) => r?.event?.type === 'approval/decided' && r.event.data?.id === askedId);
+      if (decided && ['allowed-once', 'rejected', 'cancelled', 'unavailable'].includes(decided.event.data.outcome))
+        return { status: 'resolved', outcome: decided.event.data.outcome };
+    } catch { /* The submitted result may have been accepted despite a lost read. */ }
+    return { status: 'unknown' };
   }
   private async firstFrame(endpoint: string, payload: unknown): Promise<any> {
     const control = new AbortController();
@@ -102,6 +132,8 @@ export class NativeSessions {
         return this.prompt(call.args.sessionId, call.args.requestId, call.args.text);
       case 'cancel':
         return this.invoke('cancel', call.args);
+      case 'respondApproval':
+        return this.respondApproval(call.args.sessionId, call.args.approvalId, call.args.decision);
     }
   }
 }

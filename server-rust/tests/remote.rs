@@ -142,6 +142,40 @@ async fn forwards_existing_session_and_rejects_other_accounts_and_revoked_hosts(
     let (status, result) = task.await.unwrap();
     assert_eq!(status, StatusCode::OK);
     assert_eq!(result["value"]["accepted"], true);
+    let approval = json!({"device_id":"desktop-a","method":"respondApproval","args":{"sessionId":"existing-session","approvalId":"approval-1","decision":"allowed-once"}});
+    assert_eq!(
+        request(
+            &app,
+            Method::POST,
+            "/api/remote/call",
+            Some(approval.clone()),
+            Some(&stranger)
+        )
+        .await
+        .0,
+        StatusCode::NOT_FOUND
+    );
+    let app_clone = app.clone();
+    let phone_clone = phone.clone();
+    let task = tokio::spawn(async move {
+        request(
+            &app_clone,
+            Method::POST,
+            "/api/remote/call",
+            Some(approval),
+            Some(&phone_clone),
+        )
+        .await
+    });
+    let frame: Value =
+        serde_json::from_str(socket.next().await.unwrap().unwrap().to_text().unwrap()).unwrap();
+    assert_eq!(frame["call"]["method"], "respondApproval");
+    assert_eq!(frame["call"]["args"]["approvalId"], "approval-1");
+    assert_eq!(frame["call"]["args"]["decision"], "allowed-once");
+    socket.send(Message::Text(json!({"type":"remote.result","id":frame["id"],"ok":true,"value":{"status":"resolved","outcome":"allowed-once"}}).to_string().into())).await.unwrap();
+    let (status, result) = task.await.unwrap();
+    assert_eq!(status, StatusCode::OK);
+    assert_eq!(result["value"]["outcome"], "allowed-once");
     let app_clone = app.clone();
     let phone_clone = phone.clone();
     let task = tokio::spawn(async move {

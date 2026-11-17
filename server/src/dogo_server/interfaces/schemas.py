@@ -27,7 +27,15 @@ class Refresh(Input):
 class RemoteCall(Input):
     device_id: Identifier
     method: Literal[
-        "list", "snapshot", "create", "prompt", "cancel", "workspaces", "models", "selectModel"
+        "list",
+        "snapshot",
+        "create",
+        "prompt",
+        "cancel",
+        "workspaces",
+        "models",
+        "selectModel",
+        "respondApproval",
     ]
     args: dict = Field(default_factory=dict)
 

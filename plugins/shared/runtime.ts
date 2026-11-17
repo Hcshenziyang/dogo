@@ -102,6 +102,7 @@ export class Runtime {
                 'workspaces',
                 'models',
                 'selectModel',
+                'respondApproval',
               ]),
               args: z.record(z.unknown()),
             })

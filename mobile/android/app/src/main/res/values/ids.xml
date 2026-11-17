@@ -15,4 +15,7 @@
     <item name="model_spinner" type="id" />
     <item name="effort_spinner" type="id" />
     <item name="expand_message" type="id" />
+    <item name="approval_review" type="id" />
+    <item name="approval_allow" type="id" />
+    <item name="approval_reject" type="id" />
 </resources>

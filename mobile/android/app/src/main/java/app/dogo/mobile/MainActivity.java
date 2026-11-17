@@ -37,6 +37,10 @@ public final class MainActivity extends Activity {
     private boolean foreground, remoteInFlight;
     private String selectedDevice = "", selectedSession = "", selectedName = "", selectedTitle = "";
     private boolean hostOnline, stateKnown, sessionRunning;
+    private boolean approvalAvailable, answeringApproval;
+    private JSONArray approvals = new JSONArray();
+    private String renderedApprovals = "";
+    private LinearLayout approvalBar;
     private String renderedMessages = "";
     private final HashSet<String> expandedMessages = new HashSet<>();
     private Markwon markdown;
@@ -535,6 +539,7 @@ public final class MainActivity extends Activity {
         applyingModel = false;
         autoRetriedId = "";
         hostOnline = false; stateKnown = false; sessionRunning = false; renderedMessages = "";
+        approvalAvailable = false; answeringApproval = false; approvals = new JSONArray(); renderedApprovals = "";
         screen = "chat";
         page(title, name);
         markdown = MarkdownRenderer.create(this);
@@ -568,6 +573,8 @@ public final class MainActivity extends Activity {
         composer.setPadding(dp(16), dp(8), dp(16), dp(12));
         composer.setBackgroundColor(ui.surface);
         composer.addView(chatStatus, ui.spaced(6));
+        approvalBar = ui.column();
+        composer.addView(approvalBar, ui.spaced(6));
         modelButton = ui.button("选择模型与思考强度 ▾", false, false);
         modelButton.setId(R.id.model_button);
         modelButton.setGravity(android.view.Gravity.START | android.view.Gravity.CENTER_VERTICAL);
@@ -680,7 +687,8 @@ public final class MainActivity extends Activity {
         JSONObject cached = remote.cached(scope(), selectedDevice, selectedSession);
         JSONObject pending = cached.optJSONObject("pending");
         String status = (hostOnline ? "电脑在线" : "电脑离线或连接未知") + " · "
-                + (!stateKnown ? "会话状态未知" : sessionRunning ? "正在执行" : "可以继续");
+                + (!stateKnown ? "会话状态未知" : approvals.length() > 0 ? "等待审批" : sessionRunning ? "正在执行" : "可以继续");
+        if (hostOnline && sessionRunning && !approvalAvailable) status += " · 审批状态未知";
         if (pending != null) status += " · 消息待确认";
         else if (cached.optBoolean("accepted")) status += " · 电脑已收到上一条消息";
         chatStatus.setText(status);
@@ -696,7 +704,7 @@ public final class MainActivity extends Activity {
         }
         pendingStatus.setText(notice.toString());
         pendingStatus.setVisibility(notice.length() > 0 ? View.VISIBLE : View.GONE);
-        boolean ready = foreground && hostOnline && stateKnown && !sessionRunning && !remoteInFlight;
+        boolean ready = foreground && hostOnline && stateKnown && !sessionRunning && approvals.length() == 0 && !remoteInFlight;
         String model = selectedModel == null ? "" : selectedModel.optString("model");
         String effort = selectedModel == null ? "" : selectedModel.optString("reasoningEffort");
         for (JSONObject option : RemoteSessions.modelOptions(modelCatalog)) {
@@ -718,6 +726,85 @@ public final class MainActivity extends Activity {
         retryButton.setEnabled(ready && pending != null);
         stopRetryButton.setVisibility(pending == null ? View.GONE : View.VISIBLE);
         stopRetryButton.setEnabled(!remoteInFlight);
+        renderApprovals();
+    }
+    private void renderApprovals() {
+        if (approvalBar == null) return;
+        String state = approvals.toString() + ":" + hostOnline + ":" + approvalAvailable + ":" + answeringApproval + ":" + remoteInFlight;
+        if (state.equals(renderedApprovals)) return;
+        renderedApprovals = state;
+        approvalBar.removeAllViews();
+        if (!hostOnline || !approvalAvailable) return;
+        for (int i = 0; i < approvals.length(); i++) {
+            JSONObject item = approvals.optJSONObject(i);
+            if (item == null || item.optString("id").isEmpty()) continue;
+            LinearLayout row = ui.row();
+            TextView title = ui.text("等待审批 · " + item.optString("toolName", "工具"), 13, ui.text, true);
+            row.addView(title, new LinearLayout.LayoutParams(0, -2, 1));
+            Button view = ui.button(item.optBoolean("answering") ? "结果待确认" : "查看审批", false, false);
+            view.setId(R.id.approval_review);
+            view.setEnabled(!answeringApproval && !item.optBoolean("answering") && !remoteInFlight);
+            view.setOnClickListener(v -> showApproval(item));
+            row.addView(view);
+            approvalBar.addView(row, ui.spaced(4));
+        }
+    }
+    private void showApproval(JSONObject item) {
+        String approvalId = item.optString("id"), session = selectedSession, device = selectedDevice;
+        boolean complete = item.optBoolean("detailAvailable");
+        LinearLayout content = ui.column();
+        content.setPadding(dp(20), dp(12), dp(20), dp(8));
+        TextView reason = ui.text(item.optString("reason", "工具请求审批"), 15, ui.text, true);
+        reason.setTextIsSelectable(true);
+        content.addView(reason, ui.spaced(12));
+        TextView detail = ui.text(complete ? item.optString("arguments") : "无法完整读取本次操作的参数，请回到电脑处理。", 13, ui.muted, false);
+        detail.setTextIsSelectable(true);
+        content.addView(detail, ui.spaced(8));
+        ScrollView scroll = new ScrollView(this);
+        scroll.addView(content);
+        AlertDialog dialog = new AlertDialog.Builder(this).setTitle("等待审批 · " + item.optString("toolName", "工具"))
+                .setView(scroll).setNeutralButton("取消", null)
+                .setNegativeButton("拒绝", null).setPositiveButton("允许一次", null).create();
+        dialog.setOnShowListener(v -> {
+            Button allow = dialog.getButton(AlertDialog.BUTTON_POSITIVE), reject = dialog.getButton(AlertDialog.BUTTON_NEGATIVE);
+            allow.setId(R.id.approval_allow); reject.setId(R.id.approval_reject);
+            allow.setEnabled(complete); reject.setEnabled(complete);
+            allow.setOnClickListener(button -> answerApproval(dialog, device, session, approvalId, "allowed-once"));
+            reject.setOnClickListener(button -> answerApproval(dialog, device, session, approvalId, "rejected"));
+        });
+        dialog.show();
+    }
+    private void answerApproval(AlertDialog dialog, String device, String session, String approval, String decision) {
+        boolean current = false;
+        for (int i = 0; i < approvals.length(); i++) {
+            JSONObject item = approvals.optJSONObject(i);
+            if (item != null && approval.equals(item.optString("id")) && item.optBoolean("detailAvailable")
+                    && !item.optBoolean("answering")) current = true;
+        }
+        if (!screen.equals("chat") || !device.equals(selectedDevice) || !session.equals(selectedSession)
+                || !current || !foreground || !hostOnline || !approvalAvailable || remoteInFlight || answeringApproval) {
+            say("审批状态正在更新，请稍后重试。"); return;
+        }
+        dialog.dismiss();
+        answeringApproval = true;
+        main.removeCallbacks(poll);
+        background(() -> remote.respondApproval(device, session, approval, decision), result -> {
+            answeringApproval = false;
+            if ("resolved".equals(result.optString("status"))) {
+                String outcome = result.optString("outcome");
+                say("allowed-once".equals(outcome) ? "审批已处理：允许一次。"
+                        : "rejected".equals(outcome) ? "审批已处理：已拒绝。" : "审批已结束：" + outcome);
+            } else say("审批结果未确认，请刷新会话查看，勿重复操作。");
+            refreshChat();
+        }, error -> {
+            answeringApproval = false;
+            approvalAvailable = false;
+            approvals = new JSONArray();
+            say("审批结果未确认或已失效，请刷新会话查看。");
+            updateChatControls();
+            refreshChat();
+        });
+        updateChatControls();
     }
     private void refreshChat() {
         if (!foreground || !screen.equals("chat") || remoteInFlight || busy) return;
@@ -728,6 +815,8 @@ public final class MainActivity extends Activity {
             }
             hostOnline = result.optBoolean("online"); stateKnown = result.optBoolean("known");
             sessionRunning = result.optBoolean("running");
+            approvalAvailable = result.optBoolean("approvalAvailable");
+            approvals = approvalAvailable && result.optJSONArray("approvals") != null ? result.optJSONArray("approvals") : new JSONArray();
             if (!applyingModel && result.optJSONObject("selection") != null) selectedModel = result.optJSONObject("selection");
             if (result.has("messages")) renderChat(result.optJSONArray("messages"));
             updateChatControls();
@@ -741,7 +830,7 @@ public final class MainActivity extends Activity {
             }
             if (foreground && screen.equals("chat")) main.postDelayed(poll, 4000);
         }, error -> {
-            hostOnline = false; stateKnown = false; autoRetriedId = ""; updateChatControls();
+            hostOnline = false; stateKnown = false; approvalAvailable = false; approvals = new JSONArray(); autoRetriedId = ""; updateChatControls();
             if (store.session() == null) { showLogin(); say("登录已失效，请重新登录。"); return; }
             if (foreground && screen.equals("chat")) main.postDelayed(poll, 4000);
         });
@@ -892,7 +981,7 @@ public final class MainActivity extends Activity {
         dialog.show();
     }
     private void sendMessage(boolean retry) {
-        if (remoteInFlight || !foreground || !hostOnline || !stateKnown || sessionRunning) return;
+        if (remoteInFlight || !foreground || !hostOnline || !stateKnown || sessionRunning || approvals.length() > 0) return;
         String account = scope(), device = selectedDevice, session = selectedSession;
         if (!retry) {
             try {

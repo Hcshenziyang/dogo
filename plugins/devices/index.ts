@@ -17,7 +17,7 @@ export function apply(owner: any) {
     const consumer = new Consumer(shared.runtime.api, shared.runtime.store, native.sessions);
     shared.runtime.consumer = consumer;
     ctx.effect(() => async () => {
-      consumer.stop();
+      await consumer.stop();
       shared.runtime.consumer = undefined;
       await native.dispose();
       await shared.release();

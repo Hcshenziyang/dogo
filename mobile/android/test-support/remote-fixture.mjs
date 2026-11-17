@@ -21,6 +21,11 @@ let running = false, attempts = 0, executions = 0, modelChanges = 0, connected =
 let createAttempts = 0, createExecutions = 0;
 let selection = { provider: 'fixture-provider', model: 'fixture-main', reasoningEffort: 'low' };
 const ids = [], requests = new Map(), createIds = [], created = new Map();
+const approvals = new Map([
+  ['approval-allow-session', { id: 'approval-allow', toolName: 'bash', reason: '合成测试：允许本次操作', arguments: '{"command":"printf synthetic-allow"}', detailAvailable: true }],
+  ['approval-reject-session', { id: 'approval-reject', toolName: 'bash', reason: '合成测试：拒绝本次操作', arguments: '{"command":"printf synthetic-reject"}', detailAvailable: true }],
+]);
+const approvalOutcomes = [];
 const records = [
   { event: { seq: 1, type: 'user/message', data: { source: { kind: 'user' }, content: [{ type: 'text', text: '原有上下文' }] } } },
   { event: { seq: 2, type: 'assistant/message', data: { message: { content: [{ type: 'text', text: '**加粗**\n' + '这是很长的回复，用于验证折叠和展开。\n'.repeat(24) }] } } } },
@@ -42,6 +47,8 @@ const connect = () => {
     let value;
     if (method === 'list') value = { items: [
       { sessionId: 'synthetic-session', title: '测试远程会话', running, updatedAt: Date.now() },
+      { sessionId: 'approval-allow-session', title: '审批允许测试', running: approvals.has('approval-allow-session'), updatedAt: Date.now() },
+      { sessionId: 'approval-reject-session', title: '审批拒绝测试', running: approvals.has('approval-reject-session'), updatedAt: Date.now() },
       { sessionId: 'archived-session', title: '归档测试会话', running: false, updatedAt: Date.now() },
       ...Array.from(created.values(), entry => ({ sessionId: entry.sessionId, title: '新会话', running: false, updatedAt: Date.now() })),
     ] };
@@ -71,7 +78,17 @@ const connect = () => {
       modelChanges++;
       value = { selected: selection };
     }
-    else if (method === 'snapshot') value = { type: 'snapshot', records: args.sessionId === 'synthetic-session' ? records : [], projections: { values: { modelSelection: { next: selection } } } };
+    else if (method === 'snapshot') value = { type: 'snapshot', records: args.sessionId === 'synthetic-session' ? records : [], dogoApprovals: { available: true, items: approvals.has(args.sessionId) ? [approvals.get(args.sessionId)] : [] }, projections: { values: { modelSelection: { next: selection } } } };
+    else if (method === 'respondApproval') {
+      const pending = approvals.get(args.sessionId);
+      if (!pending || pending.id !== args.approvalId || !['allowed-once', 'rejected'].includes(args.decision)) {
+        socket.send(JSON.stringify({ type: 'remote.result', id: message.id, ok: false, error: 'approval unavailable' }));
+        return;
+      }
+      approvals.delete(args.sessionId);
+      approvalOutcomes.push({ sessionId: args.sessionId, decision: args.decision });
+      value = { status: 'resolved', outcome: args.decision };
+    }
     else if (method === 'prompt') {
       attempts++;
       ids.push(args.requestId);
@@ -97,5 +114,5 @@ const connect = () => {
 createServer((_request, response) => {
   response.writeHead(200, { 'Content-Type': 'application/json' });
   response.end(JSON.stringify({ fixture: 'dogo-synthetic-v1', attempts, executions, ids, running, selection, modelChanges,
-    connected, createAttempts, createExecutions, createIds, created: Array.from(created.values()) }));
+    connected, createAttempts, createExecutions, createIds, created: Array.from(created.values()), approvalOutcomes }));
 }).listen(18790, '127.0.0.1', connect);

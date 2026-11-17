@@ -255,6 +255,7 @@ pub async fn call(
                 | "workspaces"
                 | "models"
                 | "selectModel"
+                | "respondApproval"
         )
     {
         return Err(ApiError::invalid("Invalid remote call"));
